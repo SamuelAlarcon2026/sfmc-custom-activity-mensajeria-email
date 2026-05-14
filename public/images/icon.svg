@@ -1,6 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="72" height="72" viewBox="0 0 72 72" role="img" aria-label="Private Relay Email">
-  <rect width="72" height="72" rx="16" fill="#0f62fe"/>
-  <path d="M16 23.5A5.5 5.5 0 0 1 21.5 18h29A5.5 5.5 0 0 1 56 23.5v25A5.5 5.5 0 0 1 50.5 54h-29A5.5 5.5 0 0 1 16 48.5v-25Z" fill="white"/>
-  <path d="M20 24.5 36 37l16-12.5" fill="none" stroke="#0f62fe" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M44 44h14m-7-7 7 7-7 7" fill="none" stroke="#7dd3fc" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
-</svg>
