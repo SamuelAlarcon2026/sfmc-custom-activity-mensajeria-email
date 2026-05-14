@@ -75,14 +75,14 @@ function buildConfigJson() {
         useJwt: false
       }
     },
-    userInterfaces: {
-      configModal: {
-        url: `${base}/`,
-        height: 720,
-        width: 980,
-        fullscreen: false
-      }
-    },
+  userInterfaces: {
+  configModal: {
+    url: `${base}/index.html`,
+    height: 720,
+    width: 980,
+    fullscreen: false
+  }
+},
     schema: {
       arguments: {
         execute: {
