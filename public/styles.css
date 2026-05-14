@@ -173,3 +173,13 @@ button:hover {
 }
 
 .shell.compact { max-width: 760px; }
+
+
+.notice {
+  background: #f3f7fb;
+  border: 1px solid #d8e6f3;
+  border-radius: 6px;
+  color: #16325c;
+  padding: 10px 12px;
+  margin: 8px 0 16px;
+}

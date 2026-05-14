@@ -1,3 +1,40 @@
+# SFMC Private Relay Custom Activity v0.1.4
+
+## Importante para Journey Builder
+
+En el componente **Journey Builder Activity** del Installed Package usa como **Endpoint URL** la URL base de Render:
+
+```text
+https://sfmc-custom-activity-mensajeria-email.onrender.com/
+```
+
+No uses `/config.json` como Endpoint URL del componente. La aplicación sirve `config.json` en:
+
+```text
+https://sfmc-custom-activity-mensajeria-email.onrender.com/config.json
+```
+
+pero Journey Builder debe poder abrir el modal desde la URL base.
+
+Esta versión incluye el `postmonger.js` oficial y sirve la misma UI desde:
+
+```text
+/
+ /index.html
+ /ui
+ /ui/index.html
+```
+
+Validaciones rápidas:
+
+```text
+https://sfmc-custom-activity-mensajeria-email.onrender.com/health
+https://sfmc-custom-activity-mensajeria-email.onrender.com/config.json
+https://sfmc-custom-activity-mensajeria-email.onrender.com/
+https://sfmc-custom-activity-mensajeria-email.onrender.com/debug/config
+```
+
+
 # SFMC Private Relay Custom Activity
 
 Custom Activity para Salesforce Marketing Cloud Journey Builder que envía emails mediante un relay privado, usando contenido creado en SFMC Content Builder y **snapshot al publicar**.

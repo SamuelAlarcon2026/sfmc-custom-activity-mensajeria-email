@@ -13,14 +13,16 @@ const app = express();
 app.set('trust proxy', 1);
 
 /**
- * Do not use X-Frame-Options or a restrictive CSP here.
- * Journey Builder opens the config UI inside a Salesforce iframe.
- * Headers such as X-Frame-Options:SAMEORIGIN or frame-ancestors 'self'
- * make the activity appear in the palette but prevent the modal from opening.
+ * Journey Builder opens custom activities inside a Salesforce iframe.
+ * Never send X-Frame-Options:SAMEORIGIN/DENY here.
  */
 app.use((_req, res, next) => {
   res.removeHeader('X-Frame-Options');
   res.removeHeader('Content-Security-Policy');
+  res.setHeader(
+    'Content-Security-Policy',
+    "frame-ancestors 'self' https://*.exacttarget.com https://*.marketingcloudapps.com https://*.salesforce.com https://*.force.com;"
+  );
   next();
 });
 
@@ -51,6 +53,12 @@ app.use(express.urlencoded({
 }));
 
 function sendIndex(_req, res) {
+  res.removeHeader('X-Frame-Options');
+  res.setHeader(
+    'Content-Security-Policy',
+    "frame-ancestors 'self' https://*.exacttarget.com https://*.marketingcloudapps.com https://*.salesforce.com https://*.force.com;"
+  );
+  res.setHeader('Cache-Control', 'no-store');
   res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
 }
 
@@ -77,7 +85,10 @@ app.use(express.static(path.join(__dirname, '..', 'public'), {
   maxAge: 0,
   setHeaders: (res) => {
     res.removeHeader('X-Frame-Options');
-    res.removeHeader('Content-Security-Policy');
+    res.setHeader(
+      'Content-Security-Policy',
+      "frame-ancestors 'self' https://*.exacttarget.com https://*.marketingcloudapps.com https://*.salesforce.com https://*.force.com;"
+    );
     res.setHeader('Cache-Control', 'no-store');
   }
 }));

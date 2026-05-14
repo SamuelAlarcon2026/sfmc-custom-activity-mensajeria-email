@@ -1,10 +1,13 @@
 /* global Postmonger */
 (function () {
-  var connection = window.Postmonger ? new Postmonger.Session() : null;
+  'use strict';
+
+  var connection = null;
   var payload = {};
   var activityId = '';
   var journeyId = '';
   var journeyVersionId = '';
+  var hasInitActivity = false;
 
   var fields = {
     activityName: document.getElementById('activityName'),
@@ -21,6 +24,14 @@
     fields.output.textContent = typeof value === 'string'
       ? value
       : JSON.stringify(value, null, 2);
+  }
+
+  function safeJsonParse(value, fallback) {
+    try {
+      return value ? JSON.parse(value) : fallback;
+    } catch (_error) {
+      return fallback;
+    }
   }
 
   function getConfig() {
@@ -65,21 +76,23 @@
     fields.fromEmail.value = (config.sender && config.sender.fromEmail) || '';
   }
 
+  function flattenInArguments(inArguments) {
+    var result = {};
+    if (!Array.isArray(inArguments)) return result;
+
+    inArguments.forEach(function (item) {
+      Object.keys(item || {}).forEach(function (key) {
+        result[key] = item[key];
+      });
+    });
+
+    return result;
+  }
+
   function getStoredConfig(data) {
-    try {
-      var inArguments = data && data.arguments && data.arguments.execute && data.arguments.execute.inArguments;
-      if (!Array.isArray(inArguments)) return null;
-
-      for (var i = 0; i < inArguments.length; i += 1) {
-        if (inArguments[i] && inArguments[i].__relayActivityConfig) {
-          return JSON.parse(inArguments[i].__relayActivityConfig);
-        }
-      }
-    } catch (error) {
-      setOutput('No se pudo leer la configuración guardada: ' + error.message);
-    }
-
-    return null;
+    var inArguments = data && data.arguments && data.arguments.execute && data.arguments.execute.inArguments;
+    var flat = flattenInArguments(inArguments || []);
+    return safeJsonParse(flat.__relayActivityConfig, null);
   }
 
   function buildInArguments(config) {
@@ -91,85 +104,92 @@
     }];
   }
 
-  function validate(config) {
-    var errors = [];
-
-    if (!config.contentAssetId) errors.push('Content Asset ID es obligatorio.');
-    if (!config.subject) errors.push('Subject es obligatorio.');
-    if (!config.sender.fromName) errors.push('From Name es obligatorio.');
-    if (!config.sender.fromEmail) errors.push('From Email es obligatorio.');
-    if (!config.tokenMapping.emailAddress) errors.push('Email del destinatario es obligatorio.');
-
-    return errors;
+  function ensurePayloadShape() {
+    payload.metaData = payload.metaData || {};
+    payload.arguments = payload.arguments || {};
+    payload.arguments.execute = payload.arguments.execute || {};
+    payload.arguments.execute.inArguments = payload.arguments.execute.inArguments || [];
+    payload.arguments.execute.outArguments = payload.arguments.execute.outArguments || [];
   }
 
   function save() {
     var config = getConfig();
-    var errors = validate(config);
 
-    if (errors.length) {
-      setOutput({
-        valid: false,
-        errors: errors
-      });
-
-      if (connection) {
-        connection.trigger('ready');
-      }
-
-      return;
-    }
+    ensurePayloadShape();
 
     payload.name = config.activityName;
-    payload.metaData = payload.metaData || {};
     payload.metaData.isConfigured = true;
+    payload.metaData.icon = payload.metaData.icon || '/images/icon.png';
 
-    payload.arguments = payload.arguments || {};
-    payload.arguments.execute = payload.arguments.execute || {};
     payload.arguments.execute.inArguments = buildInArguments(config);
 
     setOutput({
-      saving: true,
+      status: 'saving',
+      message: 'Enviando updateActivity a Journey Builder...',
       activityName: config.activityName
     });
 
-    if (connection) {
-      connection.trigger('updateActivity', payload);
-    }
+    connection.trigger('updateActivity', payload);
   }
 
-  function init() {
-    if (!connection) {
-      setOutput('Postmonger no está disponible. Abierto en modo local.');
-      return;
-    }
+  function onInitActivity(data) {
+    hasInitActivity = true;
+    payload = data || {};
 
-    connection.on('initActivity', function (data) {
-      payload = data || {};
-      activityId = payload.activityId || payload.activityObjectID || payload.key || payload.id || '';
-      journeyId = payload.journeyId || payload.definitionInstanceId || payload.interactionId || '';
-      journeyVersionId = payload.journeyVersionId || payload.definitionId || '';
+    activityId = payload.activityId || payload.activityObjectID || payload.key || payload.id || '';
+    journeyId = payload.journeyId || payload.definitionInstanceId || payload.interactionId || '';
+    journeyVersionId = payload.journeyVersionId || payload.definitionId || '';
 
-      setConfig(getStoredConfig(payload));
+    setConfig(getStoredConfig(payload));
 
-      setOutput({
-        status: 'ready',
-        message: 'Modal cargado correctamente. Completa los campos y pulsa Done.',
-        activityId: activityId || 'unknown'
-      });
-
-      connection.trigger('ready');
-      connection.trigger('requestTokens');
-      connection.trigger('requestEndpoints');
+    setOutput({
+      status: 'ready',
+      message: 'Modal conectado con Journey Builder.',
+      activityId: activityId || 'unknown',
+      hasExistingConfig: Boolean(getStoredConfig(payload))
     });
 
-    connection.on('clickedNext', save);
-    connection.on('clickedDone', save);
-
-    // Important: signal readiness immediately so Journey Builder does not keep
-    // the modal in a pending state while it sends initActivity.
     connection.trigger('ready');
   }
 
-  init();
+  function init() {
+    if (!window.Postmonger || !window.Postmonger.Session) {
+      setOutput('Postmonger no está disponible. La página abrió, pero no podrá comunicarse con Journey Builder.');
+      return;
+    }
+
+    connection = new window.Postmonger.Session();
+
+    connection.on('initActivity', onInitActivity);
+    connection.on('clickedNext', save);
+    connection.on('clickedDone', save);
+
+    connection.on('requestedTokens', function (tokens) {
+      setOutput({
+        status: hasInitActivity ? 'ready' : 'waitingInitActivity',
+        message: 'Tokens recibidos desde Journey Builder.',
+        tokenKeys: Object.keys(tokens || {})
+      });
+    });
+
+    connection.on('requestedEndpoints', function () {
+      // No-op. Kept for compatibility.
+    });
+
+    // Tell Journey Builder the iframe is ready. This is what enables the modal footer.
+    connection.trigger('ready');
+    connection.trigger('requestTokens');
+    connection.trigger('requestEndpoints');
+
+    setOutput({
+      status: 'waitingInitActivity',
+      message: 'Postmonger cargado. Esperando initActivity de Journey Builder...'
+    });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
 }());

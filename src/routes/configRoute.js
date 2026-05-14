@@ -9,13 +9,23 @@ function getBaseUrl(req) {
   const forwardedProto = req.headers['x-forwarded-proto'];
   const proto = Array.isArray(forwardedProto) ? forwardedProto[0] : forwardedProto;
   const protocol = proto || req.protocol || 'https';
-  const host = req.headers['x-forwarded-host'] || req.headers.host;
+  const forwardedHost = req.headers['x-forwarded-host'];
+  const host = Array.isArray(forwardedHost) ? forwardedHost[0] : (forwardedHost || req.headers.host);
 
   return `${protocol}://${host}`.replace(/\/+$/, '');
 }
 
 function endpoint(baseUrl, path) {
   return `${baseUrl}${path}`;
+}
+
+function noCacheJson(res) {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.removeHeader('X-Frame-Options');
+  res.removeHeader('Content-Security-Policy');
 }
 
 router.get(['/config.json', '/config'], (req, res) => {
@@ -56,17 +66,11 @@ router.get(['/config.json', '/config'], (req, res) => {
     }
   };
 
-  // Some SFMC tenants require this to match the Journey Builder Activity
-  // component external key from the Installed Package. Leave it empty unless
-  // APP_EXTENSION_KEY is configured in Render.
   if (env.applicationExtensionKey) {
     configurationArguments.applicationExtensionKey = env.applicationExtensionKey;
   }
 
-  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
-  res.setHeader('Content-Type', 'application/json; charset=utf-8');
-  res.removeHeader('X-Frame-Options');
-  res.removeHeader('Content-Security-Policy');
+  noCacheJson(res);
 
   res.json({
     workflowApiVersion: '1.1',
@@ -76,19 +80,24 @@ router.get(['/config.json', '/config'], (req, res) => {
       iconSmall: endpoint(baseUrl, '/images/icon.png'),
       category: 'message',
       isConfigured: false,
-      version: '0.1.3'
+      version: '0.1.4'
     },
     lang: {
       'en-US': {
         name: 'Private Relay Email',
         description: 'Send email through a private relay using an SFMC content snapshot'
+      },
+      'es-ES': {
+        name: 'Private Relay Email',
+        description: 'Envío de email por relay privado usando snapshot de contenido SFMC'
       }
     },
     arguments: {
       execute: {
         inArguments: [
           {
-            contactKey: '{{Contact.Key}}'
+            contactKey: '{{Contact.Key}}',
+            emailAddress: '{{Contact.Attribute.Profile.EmailAddress}}'
           }
         ],
         outArguments: [],
@@ -110,28 +119,28 @@ router.get(['/config.json', '/config'], (req, res) => {
     ],
     userInterfaces: {
       configModal: {
-        url: endpoint(baseUrl, '/ui/index.html'),
+        // Some Journey Builder tenants use this explicit URL.
+        // Others open the package endpoint URL directly. Therefore /, /index.html,
+        // /ui and /ui/index.html all serve the same HTML in server.js.
+        url: endpoint(baseUrl, '/'),
         height: 700,
         width: 900,
         fullscreen: false
       }
-    },
-    schema: {
-      arguments: {
-        execute: {
-          inArguments: [
-            {
-              contactKey: {
-                dataType: 'Text',
-                isNullable: false,
-                direction: 'in'
-              }
-            }
-          ],
-          outArguments: []
-        }
-      }
     }
+  });
+});
+
+router.get('/debug/config', (req, res) => {
+  const baseUrl = getBaseUrl(req);
+  noCacheJson(res);
+  res.json({
+    detectedBaseUrl: baseUrl,
+    publicBaseUrl: env.publicBaseUrl || null,
+    uiUrl: endpoint(baseUrl, '/'),
+    configUrl: endpoint(baseUrl, '/config.json'),
+    applicationExtensionKeyConfigured: Boolean(env.applicationExtensionKey),
+    note: 'In the Journey Builder Activity component, use the base URL as Endpoint URL, not /config.json.'
   });
 });
 
