@@ -61,7 +61,7 @@
   },
   "userInterfaces": {
     "configModal": {
-      "url": "https://sfmc-custom-activity-mensajeria-email.onrender.com/index.html",
+      "url": "https://sfmc-custom-activity-mensajeria-email.onrender.com/",
       "height": 720,
       "width": 980,
       "fullscreen": false

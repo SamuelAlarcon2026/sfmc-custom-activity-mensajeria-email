@@ -86,7 +86,18 @@
   Session.prototype.trigger = function (eventName, payload) {
     if (!this._target || !this._target.postMessage) return this;
 
+    /*
+     * Journey Builder expects the same envelope used by the official Postmonger
+     * library: { method: 'trigger', args: [eventName, payload] }.
+     *
+     * The event/key/data fields are kept for backwards compatibility with
+     * lightweight local harnesses, but the important part for SFMC is
+     * method='trigger' + args.
+     */
+    var args = Array.prototype.slice.call(arguments);
     var message = {
+      method: 'trigger',
+      args: args,
       event: eventName,
       key: eventName,
       data: payload,

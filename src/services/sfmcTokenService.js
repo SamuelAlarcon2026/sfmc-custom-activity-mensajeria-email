@@ -1,8 +1,45 @@
 const { AppError } = require('../middleware/errorHandler');
 
 const TOKEN_SAFETY_WINDOW_SECONDS = 120;
+const DEFAULT_SFMC_TIMEOUT_MS = 20000;
 
 let cachedToken = null;
+
+function sfmcTimeoutMs() {
+  const value = Number.parseInt(process.env.SFMC_TIMEOUT_MS || '', 10);
+  return Number.isFinite(value) && value > 0 ? value : DEFAULT_SFMC_TIMEOUT_MS;
+}
+
+async function fetchWithTimeout(url, options = {}, label = 'SFMC') {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), sfmcTimeoutMs());
+
+  try {
+    return await fetch(url, {
+      ...options,
+      signal: controller.signal
+    });
+  } catch (err) {
+    if (err && err.name === 'AbortError') {
+      throw new AppError(
+        `${label} no respondió dentro de ${sfmcTimeoutMs()} ms.`,
+        504,
+        { url: String(url).replace(/client_secret=[^&]+/gi, 'client_secret=[redacted]') },
+        'SFMC_TIMEOUT'
+      );
+    }
+
+    throw new AppError(
+      `No se pudo conectar con ${label}.`,
+      502,
+      { message: err.message },
+      'SFMC_NETWORK_ERROR'
+    );
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 
 function trimTrailingSlash(value) {
   return (value || '').replace(/\/+$/, '');
@@ -33,7 +70,7 @@ async function requestSfmcToken() {
   const authBaseUrl = trimTrailingSlash(requireEnv('SFMC_AUTH_BASE_URL'));
   const url = `${authBaseUrl}/v2/token`;
 
-  const response = await fetch(url, {
+  const response = await fetchWithTimeout(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json'
@@ -43,7 +80,7 @@ async function requestSfmcToken() {
       client_id: requireEnv('SFMC_CLIENT_ID'),
       client_secret: requireEnv('SFMC_CLIENT_SECRET')
     })
-  });
+  }, 'SFMC OAuth');
 
   const rawText = await response.text();
   let body;
@@ -105,10 +142,10 @@ async function sfmcFetch(path, options = {}, retryOnUnauthorized = true) {
     ...(options.headers || {})
   };
 
-  const response = await fetch(url, {
+  const response = await fetchWithTimeout(url, {
     ...options,
     headers
-  });
+  }, 'SFMC REST API');
 
   if (response.status === 401 && retryOnUnauthorized) {
     resetTokenCache();

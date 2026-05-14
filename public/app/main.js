@@ -97,31 +97,47 @@
   }
 
   async function fetchJson(url, options) {
-    var response = await fetch(url, Object.assign({
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    }, options || {}));
-
-    var body = {};
-    var text = await response.text();
+    var controller = window.AbortController ? new AbortController() : null;
+    var timeoutMs = 30000;
+    var timeoutId = controller ? window.setTimeout(function () {
+      controller.abort();
+    }, timeoutMs) : null;
 
     try {
-      body = text ? JSON.parse(text) : {};
-    } catch (_err) {
-      body = { raw: text };
-    }
+      var response = await fetch(url, Object.assign({
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        signal: controller ? controller.signal : undefined
+      }, options || {}));
 
-    if (!response.ok) {
-      var details = body.error && body.error.details ? body.error.details : [];
-      var message = body.error && body.error.message ? body.error.message : 'Error HTTP ' + response.status;
-      var error = new Error(message);
-      error.details = details;
-      error.body = body;
-      throw error;
-    }
+      var body = {};
+      var text = await response.text();
 
-    return body;
+      try {
+        body = text ? JSON.parse(text) : {};
+      } catch (_err) {
+        body = { raw: text };
+      }
+
+      if (!response.ok) {
+        var details = body.error && body.error.details ? body.error.details : [];
+        var message = body.error && body.error.message ? body.error.message : 'Error HTTP ' + response.status;
+        var error = new Error(message);
+        error.details = details;
+        error.body = body;
+        throw error;
+      }
+
+      return body;
+    } catch (err) {
+      if (err && err.name === 'AbortError') {
+        throw new Error('La petición tardó más de ' + Math.round(timeoutMs / 1000) + ' segundos. Revisa en Render las variables SFMC_AUTH_BASE_URL, SFMC_REST_BASE_URL, SFMC_CLIENT_ID, SFMC_CLIENT_SECRET y los permisos assets_read.');
+      }
+      throw err;
+    } finally {
+      if (timeoutId) window.clearTimeout(timeoutId);
+    }
   }
 
   function extractInArgumentConfig(activity) {
@@ -975,10 +991,23 @@
 
   render();
 
+  function signalJourneyReady() {
+    /*
+     * Journey Builder removes its grey loading overlay only after receiving the
+     * Postmonger "ready" event. Sending it more than once is safe and avoids
+     * timing issues when the iframe loads faster than the parent listener.
+     */
+    connection.trigger('ready');
+    connection.trigger('requestTokens');
+    connection.trigger('requestEndpoints');
+    updateJourneyButtons();
+  }
+
   // Journey Builder will answer with initActivity after this signal.
-  connection.trigger('ready');
-  connection.trigger('requestTokens');
-  connection.trigger('requestEndpoints');
+  signalJourneyReady();
+  window.setTimeout(signalJourneyReady, 250);
+  window.setTimeout(signalJourneyReady, 1000);
+  window.setTimeout(signalJourneyReady, 2500);
 
   // Standalone developer convenience: list assets when opened directly.
   if (window.self === window.top) {
