@@ -86,7 +86,9 @@ function securityMiddleware() {
           "https://*.marketingcloudapps.com",
           "https://*.salesforce.com",
           "https://*.force.com",
-          "https://*.salesforce-setup.com"
+          "https://*.salesforce-setup.com",
+          "https://*.salesforce-experience.com",
+          "https://*.lightning.force.com"
         ],
         "object-src": ["'none'"]
       }

@@ -1,51 +1,59 @@
 /*
- * Postmonger-compatible lightweight client for Journey Builder Custom Activities.
- * It intentionally exposes the same API used by SFMC examples:
+ * Postmonger-compatible client for Salesforce Marketing Cloud Journey Builder.
+ *
+ * This file is intentionally defensive because different SFMC tenants/frames can
+ * accept slightly different postMessage envelopes. The important call remains:
+ *
  *   const connection = new Postmonger.Session();
- *   connection.on('initActivity', handler);
  *   connection.trigger('ready');
  *
- * In production, you can replace this file with the official Postmonger build if
- * your organization standardizes on a vendored copy. This implementation keeps
- * the required API local so no secrets or external CDN scripts are needed.
+ * It sends the official Postmonger envelope and a legacy key/data envelope.
  */
 (function (window) {
   'use strict';
 
-  function parseMessage(event) {
-    var data = event.data;
-
-    if (typeof data === 'string') {
-      try {
-        data = JSON.parse(data);
-      } catch (_err) {
-        return null;
-      }
+  function safeJsonParse(value) {
+    if (typeof value !== 'string') return value;
+    try {
+      return JSON.parse(value);
+    } catch (_err) {
+      return null;
     }
+  }
 
+  function parseMessage(event) {
+    var data = safeJsonParse(event.data);
     if (!data || typeof data !== 'object') return null;
 
-    // Supported inbound shapes used across Postmonger/JB wrappers.
-    var name = data.event || data.key || data.name || data.type || data.method;
-    var payload = Object.prototype.hasOwnProperty.call(data, 'data')
-      ? data.data
-      : Object.prototype.hasOwnProperty.call(data, 'payload')
-        ? data.payload
-        : data.value;
+    var name = null;
+    var payload;
 
-    if (Array.isArray(data.args) && data.args.length) {
-      name = data.args[0] || name;
+    // Official Postmonger shape:
+    // { method: 'trigger', args: ['initActivity', activity] }
+    if (data.method === 'trigger' && Array.isArray(data.args) && data.args.length) {
+      name = data.args[0];
       payload = data.args.length > 2 ? data.args.slice(1) : data.args[1];
     }
 
-    if (!name) return null;
+    // Legacy / lightweight shapes:
+    if (!name) {
+      name = data.event || data.key || data.name || data.type;
+      if (Object.prototype.hasOwnProperty.call(data, 'data')) {
+        payload = data.data;
+      } else if (Object.prototype.hasOwnProperty.call(data, 'payload')) {
+        payload = data.payload;
+      } else if (Object.prototype.hasOwnProperty.call(data, 'value')) {
+        payload = data.value;
+      }
+    }
 
+    if (!name) return null;
     return { name: name, payload: payload, raw: data };
   }
 
   function Session() {
     this._handlers = {};
-    this._target = window.parent || window.opener || window.top;
+    this._target = window.parent && window.parent !== window ? window.parent : window.opener;
     this._targetOrigin = '*';
 
     var self = this;
@@ -55,7 +63,11 @@
 
       var handlers = self._handlers[message.name] || [];
       handlers.forEach(function (handler) {
-        handler(message.payload, message.raw);
+        try {
+          handler(message.payload, message.raw);
+        } catch (err) {
+          window.console && window.console.error && window.console.error('[Postmonger handler error]', err);
+        }
       });
     };
 
@@ -70,41 +82,50 @@
 
   Session.prototype.off = function (eventName, callback) {
     if (!this._handlers[eventName]) return this;
-
     if (!callback) {
       delete this._handlers[eventName];
       return this;
     }
-
     this._handlers[eventName] = this._handlers[eventName].filter(function (handler) {
       return handler !== callback;
     });
-
     return this;
   };
 
-  Session.prototype.trigger = function (eventName, payload) {
-    if (!this._target || !this._target.postMessage) return this;
+  Session.prototype._post = function (message) {
+    if (!this._target || !this._target.postMessage) return;
+
+    // Official Postmonger implementations generally listen to JSON strings.
+    try {
+      this._target.postMessage(JSON.stringify(message), this._targetOrigin);
+    } catch (_err) {}
 
     /*
-     * Journey Builder expects the same envelope used by the official Postmonger
-     * library: { method: 'trigger', args: [eventName, payload] }.
-     *
-     * The event/key/data fields are kept for backwards compatibility with
-     * lightweight local harnesses, but the important part for SFMC is
-     * method='trigger' + args.
+     * Some wrappers listen to raw objects. Send this as an additional fallback.
+     * Journey Builder ignores duplicate/unknown messages, and duplicate "ready"
+     * events are safe.
      */
-    var args = Array.prototype.slice.call(arguments);
-    var message = {
-      method: 'trigger',
-      args: args,
-      event: eventName,
-      key: eventName,
-      data: payload,
-      payload: payload
-    };
+    try {
+      this._target.postMessage(message, this._targetOrigin);
+    } catch (_err2) {}
+  };
 
-    this._target.postMessage(JSON.stringify(message), this._targetOrigin);
+  Session.prototype.trigger = function (eventName) {
+    var args = Array.prototype.slice.call(arguments);
+    var payload = args.length > 1 ? args[1] : undefined;
+
+    // Official Postmonger envelope.
+    this._post({
+      method: 'trigger',
+      args: args
+    });
+
+    // Legacy envelope used by some examples/harnesses.
+    this._post({
+      key: eventName,
+      data: payload
+    });
+
     return this;
   };
 

@@ -991,25 +991,49 @@
 
   render();
 
+  function rawPostmongerReady() {
+    if (!window.parent || window.parent === window || !window.parent.postMessage) return;
+
+    var messages = [
+      { method: 'trigger', args: ['ready'] },
+      { key: 'ready' },
+      { event: 'ready' }
+    ];
+
+    messages.forEach(function (message) {
+      try {
+        window.parent.postMessage(JSON.stringify(message), '*');
+      } catch (_err) {}
+
+      try {
+        window.parent.postMessage(message, '*');
+      } catch (_err2) {}
+    });
+  }
+
   function signalJourneyReady() {
     /*
      * Journey Builder removes its grey loading overlay only after receiving the
-     * Postmonger "ready" event. Sending it more than once is safe and avoids
-     * timing issues when the iframe loads faster than the parent listener.
+     * Postmonger "ready" event. We send it through the Session and also through
+     * a direct postMessage fallback to avoid tenant/browser timing issues.
      */
     connection.trigger('ready');
+    rawPostmongerReady();
     connection.trigger('requestTokens');
     connection.trigger('requestEndpoints');
     updateJourneyButtons();
+
+    if (window.console && window.console.info) {
+      window.console.info('[SFMC Custom Activity] ready sent to Journey Builder');
+    }
   }
 
   // Journey Builder will answer with initActivity after this signal.
-  signalJourneyReady();
-  window.setTimeout(signalJourneyReady, 250);
-  window.setTimeout(signalJourneyReady, 1000);
-  window.setTimeout(signalJourneyReady, 2500);
+  [0, 100, 300, 750, 1500, 3000, 5000, 8000].forEach(function (delay) {
+    window.setTimeout(signalJourneyReady, delay);
+  });
 
-  // Standalone developer convenience: list assets when opened directly.
+  // Standalone developer convenience.
   if (window.self === window.top) {
     state.notices = [{ message: 'Modo standalone. En Journey Builder se recibirá initActivity vía Postmonger.', variant: 'info' }];
     render();

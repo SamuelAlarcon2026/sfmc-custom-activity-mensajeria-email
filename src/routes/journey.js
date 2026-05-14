@@ -77,7 +77,7 @@ function buildConfigJson() {
     },
     userInterfaces: {
       configModal: {
-        url: `${base}/index.html`,
+        url: `${base}/index.html?v=jb-ready-v5`,
         height: 720,
         width: 980,
         fullscreen: false
@@ -184,6 +184,9 @@ function validateConfig(configInput = {}) {
 }
 
 router.get('/config.json', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
   res.json(buildConfigJson());
 });
 

@@ -48,9 +48,29 @@ app.use('/slds', express.static(sldsDir, {
   maxAge: process.env.NODE_ENV === 'production' ? '7d' : 0
 }));
 
+// Do not cache the Journey Builder modal shell or JS while iterating.
+// SFMC/Journey Builder iframes are very sticky with cached static files.
+app.use('/app', express.static(path.join(publicDir, 'app'), {
+  etag: false,
+  maxAge: 0,
+  setHeaders(res) {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+  }
+}));
+
 app.use(express.static(publicDir, {
   extensions: ['html'],
-  maxAge: process.env.NODE_ENV === 'production' ? '1h' : 0
+  etag: false,
+  maxAge: 0,
+  setHeaders(res, filePath) {
+    if (/index\.html$|config\.json$/i.test(filePath)) {
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+    }
+  }
 }));
 
 app.use('/api', sfmcAuthRouter);
