@@ -2,67 +2,25 @@
 <html lang="es">
 <head>
   <meta charset="utf-8">
-  <title>Private Relay Email</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link href="/styles.css" rel="stylesheet">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Email por relay privado</title>
+  <link rel="stylesheet" href="/slds/styles/salesforce-lightning-design-system.min.css">
+  <link rel="stylesheet" href="/app/styles.css">
 </head>
-<body>
-  <main class="shell compact">
-    <header class="header">
-      <div>
-        <h1>Private Relay Email</h1>
-        <p>Custom Activity mínima estable para Journey Builder.</p>
+<body class="slds-scope">
+  <div id="app" class="app-shell">
+    <div class="slds-grid slds-grid_align-center slds-p-around_large">
+      <div class="slds-spinner_container">
+        <div role="status" class="slds-spinner slds-spinner_medium">
+          <span class="slds-assistive-text">Cargando</span>
+          <div class="slds-spinner__dot-a"></div>
+          <div class="slds-spinner__dot-b"></div>
+        </div>
       </div>
-      <span class="badge">v0.1.4</span>
-    </header>
+    </div>
+  </div>
 
-    <section class="card wide">
-      <h2>Configuración</h2>
-
-      <div class="notice">
-        Modal cargado. Esta versión está reducida para asegurar apertura, guardado y comunicación con Journey Builder.
-      </div>
-
-      <label>
-        Nombre de la actividad
-        <input id="activityName" type="text" value="Private Relay Email">
-      </label>
-
-      <label>
-        Email del destinatario
-        <input id="emailAddress" type="text" value="{{Contact.Attribute.Profile.EmailAddress}}">
-      </label>
-
-      <label>
-        Content Asset ID
-        <input id="contentAssetId" type="text" placeholder="Ejemplo: 982134">
-      </label>
-
-      <label>
-        Subject
-        <input id="subject" type="text" placeholder="Hola {{firstName}}">
-      </label>
-
-      <label>
-        From Name
-        <input id="fromName" type="text" placeholder="Mi Marca">
-      </label>
-
-      <label>
-        From Email
-        <input id="fromEmail" type="email" placeholder="noreply@mi-marca.com">
-      </label>
-
-      <p class="hint">
-        Pulsa <strong>Done</strong> para guardar la configuración en el canvas.
-        La validación fuerte para publicar se mantiene en backend.
-      </p>
-
-      <pre id="output" class="output">Cargando Postmonger...</pre>
-    </section>
-  </main>
-
-  <script src="/vendor/postmonger.js"></script>
-  <script src="/customActivity.js"></script>
+  <script src="/app/postmonger.js"></script>
+  <script src="/app/main.js"></script>
 </body>
 </html>

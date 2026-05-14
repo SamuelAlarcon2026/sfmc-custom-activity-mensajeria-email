@@ -1,25 +1,25 @@
 {
-  "name": "sfmc-private-relay-custom-activity",
-  "version": "0.1.4",
-  "description": "Salesforce Marketing Cloud Journey Builder Custom Activity to send emails through a private relay using SFMC Content Builder snapshots. UI-open hotfix with official Postmonger and base endpoint support.",
-  "main": "src/server.js",
-  "scripts": {
-    "start": "node src/server.js",
-    "dev": "NODE_ENV=development node src/server.js",
-    "check": "node --check src/server.js && node --check src/routes/activityRoutes.js && node --check src/services/renderService.js && node --check src/services/tokenService.js && node --check src/services/relayClient.js && node --check src/services/sfmcAssetService.js && node --check src/services/sfmcAuthService.js && node --check src/services/configStore.js && node --check src/services/logService.js && node --check src/services/jwtService.js"
-  },
+  "name": "sfmc-custom-activity-mensajeria-email",
+  "version": "1.0.0",
+  "description": "Salesforce Marketing Cloud Journey Builder Custom Activity para enviar emails mediante relay privado.",
+  "main": "server.js",
+  "type": "commonjs",
   "engines": {
-    "node": ">=20"
+    "node": ">=18.18.0"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "check": "node --check server.js"
   },
   "dependencies": {
-    "axios": "^1.7.9",
+    "@salesforce-ux/design-system": "^2.24.6",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
-    "express-rate-limit": "^7.5.0",
-    "helmet": "^8.0.0",
-    "jsonwebtoken": "^9.0.2",
-    "morgan": "^1.10.0",
-    "uuid": "^11.0.5"
+    "helmet": "^8.0.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.9"
   }
 }

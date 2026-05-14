@@ -1,464 +1,279 @@
-# SFMC Private Relay Custom Activity v0.1.4
+# SFMC Journey Builder Custom Activity · Email por relay privado
 
-## Importante para Journey Builder
+Custom Activity ejecutable para Salesforce Marketing Cloud Engagement / Journey Builder. Permite seleccionar un email asset de Content Builder, detectar variables `{{variable}}`, mapear datos de Journey/Contact Data, previsualizar el HTML final y enviar tests o envíos reales a través de un relay privado HTTP/API externo.
 
-En el componente **Journey Builder Activity** del Installed Package usa como **Endpoint URL** la URL base de Render:
+URL base prevista:
 
-```text
-https://sfmc-custom-activity-mensajeria-email.onrender.com/
+```txt
+https://sfmc-custom-activity-mensajeria-email.onrender.com
 ```
 
-No uses `/config.json` como Endpoint URL del componente. La aplicación sirve `config.json` en:
+## 1. Arquitectura
 
-```text
-https://sfmc-custom-activity-mensajeria-email.onrender.com/config.json
+- **Journey Builder** carga `GET /config.json`.
+- El modal de configuración abre `GET /` dentro de iframe.
+- El frontend usa **Postmonger** para `ready`, `initActivity`, `clickedNext`, `clickedBack`, `gotoStep`, `requestTokens`, `requestEndpoints` y `updateActivity`.
+- El backend usa **Node.js + Express**.
+- **Content Builder Asset API** solo se consume desde backend con OAuth `client_credentials`.
+- Los secretos de SFMC y relay viven solo en variables de entorno.
+- La ejecución por contacto ocurre en `POST /execute`.
+- El envío final no usa el motor de envío de SFMC. Se llama a `RELAY_API_URL` con `Authorization: Bearer RELAY_API_KEY`.
+- No se usa almacenamiento persistente. El snapshot de HTML/text del asset queda guardado dentro de `inArguments.config.templateSnapshot`.
+
+## 2. Árbol de archivos
+
+```txt
+.
+├── .env.example
+├── .gitignore
+├── package.json
+├── render.yaml
+├── server.js
+├── src
+│   ├── middleware
+│   │   ├── errorHandler.js
+│   │   └── security.js
+│   ├── routes
+│   │   ├── assets.js
+│   │   ├── journey.js
+│   │   ├── relay.js
+│   │   └── sfmcAuth.js
+│   └── services
+│       ├── contentBuilderService.js
+│       ├── relayService.js
+│       ├── sfmcTokenService.js
+│       ├── templateRenderService.js
+│       └── variableParserService.js
+└── public
+    ├── config.json
+    ├── index.html
+    ├── app
+    │   ├── main.js
+    │   ├── postmonger.js
+    │   └── styles.css
+    └── images
+        └── icon.png
 ```
 
-pero Journey Builder debe poder abrir el modal desde la URL base.
+## 3. Endpoints
 
-Esta versión incluye el `postmonger.js` oficial y sirve la misma UI desde:
+| Método | Ruta | Uso |
+|---|---|---|
+| `GET` | `/config.json` | Configuración de la Custom Activity para Journey Builder. |
+| `GET` | `/` | UI de configuración en iframe. |
+| `GET` | `/api/assets` | Lista paginada/buscable de email assets de Content Builder. |
+| `GET` | `/api/assets/:id` | Detalle del asset, subject, preheader, HTML, texto y variables. |
+| `POST` | `/api/preview` | Render de subject/preheader/html/text con sampleData/mappings. |
+| `POST` | `/api/test-send` | Envío de prueba vía relay privado. |
+| `POST` | `/execute` | Ejecución por contacto desde Journey Builder. |
+| `POST` | `/save` | Validación de guardado. |
+| `POST` | `/validate` | Validación previa/publicación. |
+| `POST` | `/publish` | Validación de publicación. |
+| `POST` | `/stop` | Stop de una versión de Journey. |
+| `GET` | `/health` | Healthcheck para Render. |
 
-```text
-/
- /index.html
- /ui
- /ui/index.html
+## 4. Variables de entorno
+
+```txt
+PORT=3000
+SFMC_CLIENT_ID=...
+SFMC_CLIENT_SECRET=...
+SFMC_AUTH_BASE_URL=https://YOUR_SUBDOMAIN.auth.marketingcloudapis.com
+SFMC_REST_BASE_URL=https://YOUR_SUBDOMAIN.rest.marketingcloudapis.com
+RELAY_API_URL=https://relay.example.com/send
+RELAY_API_KEY=...
+RELAY_TIMEOUT_MS=15000
+APP_BASE_URL=https://sfmc-custom-activity-mensajeria-email.onrender.com
+NODE_ENV=production
 ```
 
-Validaciones rápidas:
+No configures secretos en frontend ni en `config.json`.
 
-```text
-https://sfmc-custom-activity-mensajeria-email.onrender.com/health
-https://sfmc-custom-activity-mensajeria-email.onrender.com/config.json
-https://sfmc-custom-activity-mensajeria-email.onrender.com/
-https://sfmc-custom-activity-mensajeria-email.onrender.com/debug/config
-```
+## 5. Despliegue en Render
 
+1. Sube el proyecto a GitHub.
+2. En Render crea un **Web Service**.
+3. Configura:
+   - **Build Command:** `npm install`
+   - **Start Command:** `npm start`
+   - **Environment:** Node
+4. Añade las variables de entorno indicadas arriba.
+5. Verifica:
+   - `https://sfmc-custom-activity-mensajeria-email.onrender.com/health`
+   - `https://sfmc-custom-activity-mensajeria-email.onrender.com/config.json`
+   - `https://sfmc-custom-activity-mensajeria-email.onrender.com/`
 
-# SFMC Private Relay Custom Activity
+También se incluye `render.yaml` para usar Blueprint si prefieres.
 
-Custom Activity para Salesforce Marketing Cloud Journey Builder que envía emails mediante un relay privado, usando contenido creado en SFMC Content Builder y **snapshot al publicar**.
+## 6. Installed Package en SFMC
 
-## Qué incluye esta v0.1
+Crea un Installed Package con dos componentes:
 
-- Frontend de Custom Activity para Journey Builder.
-- Backend Node.js/Express listo para Render.
-- `config.json` generado dinámicamente con `PUBLIC_BASE_URL`.
-- Endpoints:
-  - `GET /config.json`
-  - `GET /health`
-  - `POST /save`
-  - `POST /validate`
-  - `POST /publish`
-  - `POST /execute`
-  - `POST /stop`
-  - `POST /preview`
-  - `POST /test`
-  - `POST /webhook/relay`
-- Snapshot del contenido en `/publish`.
-- Renderizado de tokens `{{token}}`.
-- Defaults tipo `{{firstName | default: "cliente"}}`.
-- Integración con SFMC Content Builder vía REST API.
-- Mock de relay para poder probar sin API real.
-- Adapter HTTP para conectar el relay real cuando esté definido.
-- Logs hacia las DEs:
-  - `Relay_Email_SendLog`
-  - `Relay_Email_Events`
-  - `Relay_Email_ActivityConfig`
+### 6.1 API Integration · Server-to-Server
 
-## Decisión de contenido
-
-Esta versión usa **snapshot al publicar**:
-
-```text
-El usuario configura un Content Asset ID.
-Al publicar el journey, el backend descarga el HTML desde Content Builder.
-Se guarda un snapshot local persistente.
-Cada ejecución usa ese snapshot, aunque el asset cambie después en SFMC.
-```
-
-Esto evita que un cambio accidental en Content Builder afecte journeys ya publicados.
-
-## Requisitos en SFMC
-
-Necesitas un Installed Package con estos componentes:
-
-### 1. Journey Builder Activity
-
-Configura el endpoint de la actividad como:
-
-```text
-https://TU-SERVICIO-RENDER.onrender.com/config.json
-```
-
-Cuando Render esté desplegado, ese endpoint devolverá la configuración completa de la Custom Activity.
-
-### 2. API Integration Server-to-Server
+Uso: consumir Content Builder Asset API desde backend.
 
 Permisos mínimos recomendados:
 
-- Assets: Read
-- Data Extensions: Read
-- Data Extensions: Write
+- **Content Builder / Assets / Read**
+- Scope/API permission equivalente: `assets_read`
 
-Guarda estos datos para las variables de entorno:
+El nombre exacto puede variar según la UI del tenant. No se necesita permiso de envío de email de SFMC porque el envío lo hace el relay privado. Tampoco se necesita exponer `client_secret` en frontend.
 
-```text
-SFMC_CLIENT_ID
-SFMC_CLIENT_SECRET
-SFMC_AUTH_BASE_URL
-SFMC_REST_BASE_URL
-SFMC_ACCOUNT_ID opcional
+Configura en Render:
+
+```txt
+SFMC_CLIENT_ID=<client id del componente Server-to-Server>
+SFMC_CLIENT_SECRET=<client secret del componente Server-to-Server>
+SFMC_AUTH_BASE_URL=https://<subdomain>.auth.marketingcloudapis.com
+SFMC_REST_BASE_URL=https://<subdomain>.rest.marketingcloudapis.com
 ```
 
-### 3. JWT signing secret
+### 6.2 Journey Builder Activity
 
-Configura:
+Crea un componente **Journey Builder Activity** y usa:
 
-```text
-JWT_SIGNING_SECRET
+```txt
+Endpoint URL:
+https://sfmc-custom-activity-mensajeria-email.onrender.com/config.json
 ```
 
-Debe corresponder al secreto con el que Journey Builder firma los payloads JWT de la Custom Activity. En muchos paquetes coincide con el client secret del componente/app, pero conviene revisarlo en el Installed Package.
+La actividad aparece como Custom Activity ejecutable porque `config.json` usa:
 
-## Requisitos en Render
-
-## Fix Render: `EACCES: permission denied, mkdir '/data'`
-
-Si ves este error en Render:
-
-```text
-Unable to initialize data directory: Error: EACCES: permission denied, mkdir '/data'
+```json
+"type": "REST"
 ```
 
-significa que `DATA_DIR=/data` está configurado, pero el servicio no tiene un persistent disk montado en `/data` o Render no lo ha aplicado al servicio actual.
+No es una `RestDecision` ni una decision split.
 
-Opciones:
+## 7. Flujo de UI
 
-1. Para desbloquear el deploy rápido, usa:
+1. **Selección de plantilla**
+   - Busca assets por nombre/customerKey.
+   - Selecciona un email asset.
+   - Se detectan variables `{{FirstName}}`, `{{ Email }}`, `{{custom_field}}`.
 
-```bash
-DATA_DIR=./data
-```
+2. **Configuración de envío**
+   - Subject, preheader, From Name, From Email, Reply-To.
+   - Recipient mapping, por defecto `{{InteractionDefaults.Email}}`.
+   - Cada variable permite:
+     - Valor fijo.
+     - Journey Data.
+     - Contact Data.
+     - Valor de test/preview.
+   - Para Journey/Contact Data puedes escribir `{{Event.FirstName}}` o `Contact.Attribute.Perfil.FirstName`.
 
-Esto permite arrancar, pero el almacenamiento puede ser efímero en redeploys.
+3. **Preview**
+   - Renderiza subject, preheader, HTML y text.
+   - Muestra desktop y mobile con iframe sandbox.
+   - Lista variables resueltas, no resueltas y warnings.
 
-2. Para producción, crea/adjunta un persistent disk en Render:
+4. **Test**
+   - Envía al relay privado con sampleData.
+   - Muestra respuesta estructurada.
 
-```text
-Mount path: /data
-```
+5. **Done**
+   - Guarda todo en `activity.arguments.execute.inArguments`.
+   - `metaData.isConfigured = true`.
+   - Al reabrir la actividad, se precarga la configuración.
 
-y entonces usa:
+## 8. Contrato del relay
 
-```bash
-DATA_DIR=/data
-```
-
-Desde la versión `0.1.1`, la app no se cae si `/data` no es writable: hace fallback a un directorio escribible y lo muestra en `/health`. Aun así, para snapshots publicados en journeys reales, se recomienda persistent disk.
-
-Crea un Web Service de Node.js.
-
-Build command:
-
-```bash
-npm install
-```
-
-Start command:
-
-```bash
-npm start
-```
-
-Runtime:
-
-```text
-Node 20+
-```
-
-Añade un persistent disk:
-
-```text
-Mount path: /data
-Size: 1 GB para empezar
-```
-
-Esto es importante porque los snapshots se guardan fuera del filesystem efímero.
-
-## Variables de entorno
-
-Copia `.env.example` y configura:
-
-```bash
-PUBLIC_BASE_URL=https://TU-SERVICIO-RENDER.onrender.com
-
-JWT_SIGNING_SECRET=xxxxx
-JWT_REQUIRED=true
-
-DATA_DIR=/data
-
-SFMC_CLIENT_ID=xxxxx
-SFMC_CLIENT_SECRET=xxxxx
-SFMC_AUTH_BASE_URL=https://xxxx.auth.marketingcloudapis.com
-SFMC_REST_BASE_URL=https://xxxx.rest.marketingcloudapis.com
-SFMC_ACCOUNT_ID=123456789
-
-DE_SEND_LOG_KEY=Relay_Email_SendLog
-DE_EVENTS_KEY=Relay_Email_Events
-DE_ACTIVITY_CONFIG_KEY=Relay_Email_ActivityConfig
-
-RELAY_MODE=mock
-UI_ENDPOINTS_ALLOW_UNSIGNED=true
-ENABLE_TEST_SEND=false
-```
-
-Cuando exista el relay real:
-
-```bash
-RELAY_MODE=http
-RELAY_SEND_URL=https://relay.empresa.com/email/send
-RELAY_AUTH_TOKEN=xxxxx
-ENABLE_TEST_SEND=true # solo cuando quieras permitir test real desde el modal
-```
-
-## Convención de tokens
-
-En el HTML de Content Builder usa tokens simples:
-
-```html
-Hola {{firstName}},
-tu código es {{promoCode}}.
-```
-
-También puedes usar defaults:
-
-```html
-Hola {{firstName | default: "cliente"}},
-```
-
-Los tokens se mapean en la pantalla de la Custom Activity.
-
-## Uso en Journey Builder
-
-1. Arrastra la Custom Activity al journey.
-2. Indica:
-   - Nombre de actividad.
-   - Content Asset ID.
-   - Subject.
-   - Preheader.
-   - From Name.
-   - From Email.
-   - Reply-To.
-   - Mapeos de tokens.
-3. Valida.
-4. Haz preview/test.
-5. Publica el journey.
-
-Al publicar, el backend hace el snapshot del HTML.
-
-## Formato del mapeo de tokens
-
-En la UI de esta v0.1 el mapeo se introduce como JSON:
+Payload enviado:
 
 ```json
 {
-  "emailAddress": "{{Contact.Attribute.Profile.EmailAddress}}",
-  "firstName": "{{Contact.Attribute.Profile.FirstName}}",
-  "country": "{{Contact.Attribute.Profile.Country}}",
-  "promoCode": "{{Contact.Attribute.Coupons.PromoCode}}"
-}
-```
-
-`emailAddress` es obligatorio.
-
-El backend transforma ese mapeo en `inArguments` para que Journey Builder resuelva los valores en cada contacto.
-
-## Endpoint /execute
-
-Journey Builder llamará a `/execute` para cada contacto.
-
-El backend:
-
-1. Valida JWT.
-2. Recupera la configuración publicada.
-3. Recupera el snapshot.
-4. Sustituye tokens con los datos del contacto.
-5. Construye el payload final.
-6. Envía al relay.
-7. Registra el resultado.
-8. Responde a Journey Builder.
-
-## Payload enviado al relay
-
-Ejemplo:
-
-```json
-{
-  "messageId": "sfmc-journey123-version4-activity789-003ABC123",
-  "recipient": {
-    "email": "laura@example.com",
-    "contactKey": "003ABC123"
+  "to": "destinatario@email.com",
+  "from": {
+    "name": "Nombre remitente",
+    "email": "remitente@dominio.com"
   },
-  "sender": {
-    "fromName": "Mi Marca",
-    "fromEmail": "noreply@mi-marca.com",
-    "replyTo": "soporte@mi-marca.com"
-  },
-  "content": {
-    "subject": "Hola Laura",
-    "preheader": "Tu promoción está disponible",
-    "html": "<html>...</html>",
-    "text": "Hola Laura..."
-  },
-  "tracking": {
-    "openTracking": true,
-    "clickTracking": true
-  },
+  "replyTo": "reply@dominio.com",
+  "subject": "Subject final",
+  "preheader": "Preheader final",
+  "html": "<html>...</html>",
+  "text": "Texto plano",
   "metadata": {
-    "source": "SFMC",
-    "businessUnitId": "123456789",
-    "journeyId": "journey123",
-    "journeyVersionId": "version4",
-    "activityId": "activity789",
-    "activityName": "Relay Email"
+    "contactKey": "...",
+    "journeyId": "...",
+    "activityId": "...",
+    "assetId": "...",
+    "assetCustomerKey": "..."
   }
 }
 ```
 
-## Webhooks del relay
+Por defecto se usa:
 
-El endpoint es:
-
-```text
-POST /webhook/relay
+```txt
+Authorization: Bearer <RELAY_API_KEY>
 ```
 
-Payload esperado:
+Si tu relay necesita otro contrato, modifica `src/services/relayService.js` en `buildRelayPayload()` o `postToRelay()`.
 
-```json
-{
-  "providerMessageId": "relay-789",
-  "messageId": "sfmc-journey123-version4-activity789-003ABC123",
-  "eventType": "delivered",
-  "eventDate": "2026-05-14T10:30:00Z",
-  "recipient": "laura@example.com"
-}
-```
+## 9. Seguridad
 
-Se insertará en `Relay_Email_Events`.
+- `helmet` activo.
+- CSP con `frame-ancestors` para dominios SFMC/Salesforce.
+- CORS restringido a dominios SFMC/Salesforce y `APP_BASE_URL`.
+- `client_secret`, OAuth token y relay key nunca se envían al frontend.
+- No se loguea HTML completo ni tokens.
+- Cada request tiene `X-Correlation-Id`.
+- Preview con iframe `sandbox`.
+- Sustitución HTML escapa valores.
+- No se sustituyen variables dentro de `<script>` o `<style>`.
 
-## Desarrollo local
+## 10. Checklist de pruebas en Journey Builder
+
+- [ ] `/config.json` responde HTTP 200 con JSON válido.
+- [ ] `/` abre sin errores HTTPS.
+- [ ] La Custom Activity aparece en Journey Builder como actividad custom.
+- [ ] Al hacer clic abre el modal.
+- [ ] La app ejecuta `connection.trigger('ready')`.
+- [ ] No aparece “Failed to load custom activity configuration”.
+- [ ] `/api/sfmc/token-status` responde `success: true`.
+- [ ] `/api/assets` lista assets.
+- [ ] Seleccionar asset carga subject/preheader/html/text.
+- [ ] Variables `{{}}` aparecen como badges.
+- [ ] Se guardan mappings.
+- [ ] Preview renderiza valores de prueba.
+- [ ] Test send llega al relay.
+- [ ] Al pulsar Done, reabrir precarga la configuración.
+- [ ] `POST /validate` y `POST /publish` responden success.
+- [ ] En un Journey publicado, `POST /execute` recibe contacto y llama al relay.
+- [ ] En logs aparece `correlationId` y `contactKey`, sin secretos.
+
+## 11. Limitaciones conocidas
+
+- No se ejecuta AMPscript, SSJS, personalization strings `%%...%%` ni Dynamic Content nativo de SFMC.
+- Content Blocks anidados pueden no venir completamente embebidos en Asset API.
+- El snapshot HTML se guarda en `inArguments`; emails muy grandes pueden hacer crecer la configuración de la actividad.
+- La UI no implementa un selector gráfico nativo de atributos de Journey Builder; permite escribir expresiones de data binding.
+- La query avanzada de Asset API puede variar por tenant; el servicio tiene fallback a listado básico con filtrado local.
+- `useJwt` está en `false`. Si necesitas verificar JWT de Journey Builder, habilítalo en `config.json` y añade validación backend con la signing key correspondiente.
+
+## 12. Cómo añadir más campos o mappings
+
+1. Añade el campo en `DEFAULT_CONFIG` dentro de `public/app/main.js`.
+2. Píntalo en `renderStepConfig()`.
+3. Inclúyelo en `readConfigFromForm()`.
+4. Añádelo al `config` guardado por `buildInArgument()`.
+5. En backend, añade validación en `normalizeConfig()` y `validateConfig()` en `src/routes/journey.js`.
+6. Para enviarlo al relay, añade el campo a `buildRelayPayload()` o a `metadata`.
+
+## 13. Ejecución local
 
 ```bash
 cp .env.example .env
 npm install
-npm run check
-npm start
+npm run dev
 ```
 
-Con `RELAY_MODE=mock`, `/test` y `/execute` no enviarán emails reales.
+Abre:
 
-## Limitaciones de esta v0.1
-
-- El selector de assets es manual por `Content Asset ID`.
-- La UI de mapeo usa JSON para acelerar el MVP.
-- El snapshot se guarda en disco persistente de Render; para alta disponibilidad conviene migrarlo a Postgres/S3.
-- El renderizador soporta tokens y defaults, no lógica AMPscript.
-- No renderiza Dynamic Content nativo de SFMC.
-- El tracking de opens/clicks depende del relay o de una futura capa de click wrapping.
-
-## Siguiente iteración recomendada
-
-- Selector visual de Content Builder.
-- Escaneo automático de tokens desde el asset.
-- UI visual para mapping.
-- Snapshot en Postgres/S3.
-- Click wrapping propio.
-- Dashboard de logs.
-- Reprocesamiento de fallidos.
-
-
-## Nota de seguridad sobre Preview/Test
-
-Los botones `Preview` y `Enviar test` se llaman desde el iframe del modal. En esta v0.1 se permite `UI_ENDPOINTS_ALLOW_UNSIGNED=true` para facilitar el MVP, porque esos botones no reciben el JWT de Journey Builder como `/publish` o `/execute`.
-
-Para un endurecimiento real antes de producción:
-
-```text
-UI_ENDPOINTS_ALLOW_UNSIGNED=false
+```txt
+http://localhost:3000/
+http://localhost:3000/config.json
 ```
 
-y sustituir esos botones por una validación basada en token de usuario, gateway autenticado o una capa propia de sesión. Además, `ENABLE_TEST_SEND=false` evita que el botón de test envíe al relay real aunque `RELAY_MODE=http`.
-
-## Changelog
-
-### 0.1.1
-
-- Corrige fallo de deploy en Render cuando `DATA_DIR=/data` no es escribible.
-- Añade fallback automático a un directorio writable.
-- Añade `dataDir` en `/health`.
-- Actualiza `.env.example` para usar `./data` como primer deploy seguro.
-
-
-## Fix v0.1.2: Journey Builder no abre el modal
-
-Esta versión corrige dos causas habituales:
-
-1. **`X-Frame-Options`**: se desactiva explícitamente porque Journey Builder abre `index.html` dentro de un iframe de Salesforce.
-2. **`PUBLIC_BASE_URL` vacío**: si no defines `PUBLIC_BASE_URL`, `/config.json` calcula la URL pública desde la petición entrante de Render. Así evita devolver URLs `localhost`.
-
-Validaciones rápidas tras desplegar:
-
-```bash
-curl -I https://TU-APP.onrender.com/index.html
-```
-
-No debe aparecer:
-
-```text
-X-Frame-Options: SAMEORIGIN
-```
-
-Y:
-
-```bash
-curl https://TU-APP.onrender.com/config.json
-```
-
-Debe devolver URLs de Render, no `localhost`.
-
-Recomendado en Render:
-
-```env
-PUBLIC_BASE_URL=https://TU-APP.onrender.com
-```
-
-
-
-## v0.1.3 - Fix para modal que no abre en Journey Builder
-
-Esta versión reduce la UI a lo mínimo y cambia el `config.json` para maximizar compatibilidad con Journey Builder:
-
-- Añade `wizardSteps`.
-- Expone el modal en `/ui/index.html`.
-- Elimina cualquier header que pueda bloquear iframes.
-- Añade `iconSmall`.
-- Añade `body`, `header`, `format` y `useJwt` en endpoints de configuración.
-- Permite definir `APP_EXTENSION_KEY` si tu tenant requiere que coincida con el External Key del componente Journey Builder Activity del Installed Package.
-
-Después de desplegar, valida estas URLs:
-
-```text
-https://TU-APP.onrender.com/health
-https://TU-APP.onrender.com/config.json
-https://TU-APP.onrender.com/ui/index.html
-```
-
-En el Installed Package, el Endpoint URL debe seguir siendo:
-
-```text
-https://TU-APP.onrender.com/config.json
-```
-
-Para abrir la configuración en el canvas de Journey Builder, normalmente hay que hacer doble click sobre la actividad o seleccionar la actividad y usar la opción de configuración.
+Para probar Journey Builder necesitas HTTPS público. Render cumple este requisito.
