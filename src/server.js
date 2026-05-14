@@ -15,8 +15,17 @@ app.set('trust proxy', 1);
 
 app.use(helmet({
   contentSecurityPolicy: false,
-  crossOriginEmbedderPolicy: false
+  crossOriginEmbedderPolicy: false,
+  // Journey Builder loads the config modal in a Salesforce iframe.
+  // Helmet's default X-Frame-Options:SAMEORIGIN blocks that iframe.
+  xFrameOptions: false
 }));
+
+app.use((_req, res, next) => {
+  // Do not set X-Frame-Options. It must be absent for SFMC Journey Builder.
+  res.removeHeader('X-Frame-Options');
+  next();
+});
 
 app.use(cors({
   origin: env.corsOrigin ? env.corsOrigin.split(',').map((origin) => origin.trim()) : true,
@@ -51,6 +60,10 @@ app.get('/health', (_req, res) => {
     timestamp: new Date().toISOString(),
     dataDir: getActiveDataDir()
   });
+});
+
+app.get('/', (_req, res) => {
+  res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
 });
 
 app.use(configRoute);

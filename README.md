@@ -362,3 +362,38 @@ y sustituir esos botones por una validación basada en token de usuario, gateway
 - Añade fallback automático a un directorio writable.
 - Añade `dataDir` en `/health`.
 - Actualiza `.env.example` para usar `./data` como primer deploy seguro.
+
+
+## Fix v0.1.2: Journey Builder no abre el modal
+
+Esta versión corrige dos causas habituales:
+
+1. **`X-Frame-Options`**: se desactiva explícitamente porque Journey Builder abre `index.html` dentro de un iframe de Salesforce.
+2. **`PUBLIC_BASE_URL` vacío**: si no defines `PUBLIC_BASE_URL`, `/config.json` calcula la URL pública desde la petición entrante de Render. Así evita devolver URLs `localhost`.
+
+Validaciones rápidas tras desplegar:
+
+```bash
+curl -I https://TU-APP.onrender.com/index.html
+```
+
+No debe aparecer:
+
+```text
+X-Frame-Options: SAMEORIGIN
+```
+
+Y:
+
+```bash
+curl https://TU-APP.onrender.com/config.json
+```
+
+Debe devolver URLs de Render, no `localhost`.
+
+Recomendado en Render:
+
+```env
+PUBLIC_BASE_URL=https://TU-APP.onrender.com
+```
+

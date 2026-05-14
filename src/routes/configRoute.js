@@ -3,14 +3,28 @@ const env = require('../config/env');
 
 const router = express.Router();
 
-router.get('/config.json', (_req, res) => {
-  const baseUrl = env.publicBaseUrl;
+function getBaseUrl(req) {
+  if (env.publicBaseUrl) return env.publicBaseUrl;
+
+  const forwardedProto = req.headers['x-forwarded-proto'];
+  const proto = Array.isArray(forwardedProto) ? forwardedProto[0] : forwardedProto;
+  const protocol = proto || req.protocol || 'https';
+  const host = req.headers['x-forwarded-host'] || req.headers.host;
+
+  return `${protocol}://${host}`.replace(/\/+$/, '');
+}
+
+router.get('/config.json', (req, res) => {
+  const baseUrl = getBaseUrl(req);
+
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
 
   res.json({
     workflowApiVersion: '1.1',
     type: 'REST',
     metaData: {
-      icon: `${baseUrl}/images/icon.svg`,
+      icon: `${baseUrl}/images/icon.png`,
       category: 'message',
       isConfigured: false
     },

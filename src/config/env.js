@@ -7,7 +7,9 @@ function cleanBaseUrl(value) {
 const env = {
   nodeEnv: process.env.NODE_ENV || 'development',
   port: Number(process.env.PORT || 3000),
-  publicBaseUrl: cleanBaseUrl(process.env.PUBLIC_BASE_URL || `http://localhost:${process.env.PORT || 3000}`),
+  // If PUBLIC_BASE_URL is not set, /config.json derives it from the incoming Render request.
+  // This avoids Journey Builder receiving localhost URLs.
+  publicBaseUrl: cleanBaseUrl(process.env.PUBLIC_BASE_URL || ''),
 
   jwtSigningSecret: process.env.JWT_SIGNING_SECRET || '',
   jwtRequired: String(process.env.JWT_REQUIRED || 'true').toLowerCase() === 'true',
