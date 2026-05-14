@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: sfmc-private-relay-custom-activity
+    env: node
+    plan: starter
+    buildCommand: npm install
+    startCommand: npm start
+    autoDeploy: true
+    disk:
+      name: sfmc-private-relay-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATA_DIR
+        value: /data
+      - key: JWT_REQUIRED
+        value: true
+      - key: RELAY_MODE
+        value: mock
+      - key: DE_SEND_LOG_KEY
+        value: Relay_Email_SendLog
+      - key: DE_EVENTS_KEY
+        value: Relay_Email_Events
+      - key: DE_ACTIVITY_CONFIG_KEY
+        value: Relay_Email_ActivityConfig

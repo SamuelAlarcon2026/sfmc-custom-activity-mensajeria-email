@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <title>Email Relay Privado</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link href="/styles.css" rel="stylesheet">
+</head>
+<body>
+  <main class="shell">
+    <header class="header">
+      <div>
+        <h1>Email Relay Privado</h1>
+        <p>Configura un envío con contenido de SFMC y snapshot al publicar.</p>
+      </div>
+      <span class="badge">Snapshot on publish</span>
+    </header>
+
+    <section class="grid">
+      <article class="card">
+        <h2>1. Configuración general</h2>
+
+        <label>
+          Nombre de la actividad
+          <input id="activityName" type="text" placeholder="Relay Welcome Email">
+        </label>
+
+        <label>
+          Entorno
+          <select id="environment">
+            <option value="sandbox">Sandbox</option>
+            <option value="uat" selected>UAT</option>
+            <option value="production">Producción</option>
+          </select>
+        </label>
+
+        <label>
+          Locale
+          <input id="locale" type="text" value="es-ES">
+        </label>
+      </article>
+
+      <article class="card">
+        <h2>2. Contenido SFMC</h2>
+
+        <label>
+          Content Asset ID
+          <input id="contentAssetId" type="text" placeholder="982134">
+        </label>
+
+        <label>
+          Subject
+          <input id="subject" type="text" placeholder="Hola {{firstName}}, tu oferta está lista">
+        </label>
+
+        <label>
+          Preheader
+          <input id="preheader" type="text" placeholder="Tu código {{promoCode}} está disponible">
+        </label>
+
+        <p class="hint">El HTML se descargará desde Content Builder y se guardará como snapshot al publicar.</p>
+      </article>
+
+      <article class="card">
+        <h2>3. Remitente</h2>
+
+        <label>
+          From Name
+          <input id="fromName" type="text" placeholder="Mi Marca">
+        </label>
+
+        <label>
+          From Email
+          <input id="fromEmail" type="email" placeholder="noreply@mi-marca.com">
+        </label>
+
+        <label>
+          Reply-To
+          <input id="replyTo" type="email" placeholder="soporte@mi-marca.com">
+        </label>
+      </article>
+
+      <article class="card">
+        <h2>4. Tracking</h2>
+
+        <label class="check">
+          <input id="openTracking" type="checkbox" checked>
+          Open tracking
+        </label>
+
+        <label class="check">
+          <input id="clickTracking" type="checkbox" checked>
+          Click tracking
+        </label>
+
+        <p class="hint">La disponibilidad real dependerá del relay privado.</p>
+      </article>
+    </section>
+
+    <section class="card wide">
+      <h2>5. Mapeo de tokens</h2>
+      <p class="hint">
+        Introduce JSON con los atributos de Journey Builder. <strong>emailAddress</strong> es obligatorio.
+      </p>
+
+      <textarea id="tokenMapping" spellcheck="false">{
+  "emailAddress": "{{Contact.Attribute.Profile.EmailAddress}}",
+  "firstName": "{{Contact.Attribute.Profile.FirstName}}",
+  "country": "{{Contact.Attribute.Profile.Country}}",
+  "promoCode": "{{Contact.Attribute.Coupons.PromoCode}}"
+}</textarea>
+    </section>
+
+    <section class="card wide">
+      <h2>6. Defaults</h2>
+      <p class="hint">Valores por defecto cuando un token llegue vacío.</p>
+
+      <textarea id="defaults" spellcheck="false">{
+  "firstName": "cliente"
+}</textarea>
+    </section>
+
+    <section class="card wide">
+      <h2>7. Preview / Test</h2>
+
+      <div class="actions">
+        <button id="validateBtn" type="button">Validar configuración</button>
+        <button id="previewBtn" type="button">Preview con datos de ejemplo</button>
+        <button id="testBtn" type="button">Enviar test</button>
+      </div>
+
+      <div class="test-row">
+        <label>
+          Email test
+          <input id="testRecipient" type="email" placeholder="qa@example.com">
+        </label>
+      </div>
+
+      <textarea id="sampleData" spellcheck="false">{
+  "contactKey": "TEST-001",
+  "emailAddress": "qa@example.com",
+  "firstName": "Laura",
+  "country": "ES",
+  "promoCode": "WELCOME10"
+}</textarea>
+
+      <pre id="output" class="output">Esperando acción...</pre>
+    </section>
+
+    <footer class="footer">
+      <p>
+        Esta actividad guarda snapshot al publicar. Los cambios posteriores en Content Builder no afectan al journey publicado.
+      </p>
+    </footer>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/postmonger@0.0.16/postmonger.js"></script>
+  <script src="/customActivity.js"></script>
+</body>
+</html>
