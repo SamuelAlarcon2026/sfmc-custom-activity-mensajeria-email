@@ -277,3 +277,25 @@ http://localhost:3000/config.json
 ```
 
 Para probar Journey Builder necesitas HTTPS público. Render cumple este requisito.
+## Hotfix despliegue Render: `Cannot find module 'morgan'`
+
+Si Render falla con:
+
+```txt
+Error: Cannot find module 'morgan'
+```
+
+asegúrate de que `package.json` incluye:
+
+```json
+"morgan": "^1.10.0"
+```
+
+y que el servicio usa:
+
+```txt
+Build Command: npm install
+Start Command: npm start
+```
+
+Este paquete fija además Node a `20.x` para evitar diferencias con versiones demasiado nuevas de Node.
