@@ -957,8 +957,19 @@
     });
   }
 
+  var hasReceivedInitActivity = false;
+
   connection.on('initActivity', function (activity) {
+    hasReceivedInitActivity = true;
     hydrateFromActivity(activity);
+
+    /*
+     * Pedimos tokens/endpoints después de initActivity. Hacerlo antes o repetir
+     * "ready" puede provocar que Journey Builder reactive su overlay de carga.
+     */
+    connection.trigger('requestTokens');
+    connection.trigger('requestEndpoints');
+    updateJourneyButtons();
   });
 
   connection.on('requestedTokens', function (tokens) {
@@ -991,47 +1002,26 @@
 
   render();
 
-  function rawPostmongerReady() {
-    if (!window.parent || window.parent === window || !window.parent.postMessage) return;
-
-    var messages = [
-      { method: 'trigger', args: ['ready'] },
-      { key: 'ready' },
-      { event: 'ready' }
-    ];
-
-    messages.forEach(function (message) {
-      try {
-        window.parent.postMessage(JSON.stringify(message), '*');
-      } catch (_err) {}
-
-      try {
-        window.parent.postMessage(message, '*');
-      } catch (_err2) {}
-    });
-  }
-
-  function signalJourneyReady() {
-    /*
-     * Journey Builder removes its grey loading overlay only after receiving the
-     * Postmonger "ready" event. We send it through the Session and also through
-     * a direct postMessage fallback to avoid tenant/browser timing issues.
-     */
+  /*
+   * IMPORTANTE:
+   * Journey Builder quita el spinner gris cuando recibe exactamente el evento
+   * Postmonger "ready". No repetimos ready y no usamos un wrapper casero:
+   * cargamos Postmonger oficial desde /vendor/postmonger.js.
+   */
+  window.setTimeout(function () {
     connection.trigger('ready');
-    rawPostmongerReady();
-    connection.trigger('requestTokens');
-    connection.trigger('requestEndpoints');
     updateJourneyButtons();
 
-    if (window.console && window.console.info) {
-      window.console.info('[SFMC Custom Activity] ready sent to Journey Builder');
-    }
-  }
-
-  // Journey Builder will answer with initActivity after this signal.
-  [0, 100, 300, 750, 1500, 3000, 5000, 8000].forEach(function (delay) {
-    window.setTimeout(signalJourneyReady, delay);
-  });
+    window.setTimeout(function () {
+      if (!hasReceivedInitActivity) {
+        state.notices = [{
+          message: 'Journey Builder cargó el iframe, pero todavía no respondió con initActivity. Si ves el spinner gris, revisa que se esté cargando /vendor/postmonger.js y que no haya cache antiguo del config.json.',
+          variant: 'warning'
+        }];
+        render();
+      }
+    }, 6000);
+  }, 0);
 
   // Standalone developer convenience.
   if (window.self === window.top) {

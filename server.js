@@ -48,6 +48,38 @@ app.use('/slds', express.static(sldsDir, {
   maxAge: process.env.NODE_ENV === 'production' ? '7d' : 0
 }));
 
+function findFirstExistingFile(candidates) {
+  return candidates.find((candidate) => {
+    try {
+      return require('fs').existsSync(candidate);
+    } catch (_err) {
+      return false;
+    }
+  });
+}
+
+app.get('/vendor/postmonger.js', (_req, res) => {
+  const candidates = [
+    path.join(__dirname, 'node_modules', 'postmonger', 'postmonger.js'),
+    path.join(__dirname, 'node_modules', 'postmonger', 'postmonger.min.js'),
+    path.join(__dirname, 'node_modules', 'postmonger', 'dist', 'postmonger.js'),
+    path.join(__dirname, 'node_modules', 'postmonger', 'dist', 'postmonger.min.js'),
+    path.join(__dirname, 'public', 'vendor', 'postmonger-fallback.js')
+  ];
+
+  const filePath = findFirstExistingFile(candidates);
+
+  if (!filePath) {
+    res.status(500).type('text/plain').send('Postmonger no está disponible. Revisa que la dependencia npm postmonger esté instalada.');
+    return;
+  }
+
+  res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.sendFile(filePath);
+});
+
+
 // Do not cache the Journey Builder modal shell or JS while iterating.
 // SFMC/Journey Builder iframes are very sticky with cached static files.
 app.use('/app', express.static(path.join(publicDir, 'app'), {

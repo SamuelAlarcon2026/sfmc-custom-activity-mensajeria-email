@@ -77,7 +77,7 @@ function buildConfigJson() {
     },
     userInterfaces: {
       configModal: {
-        url: `${base}/index.html?v=jb-ready-v5`,
+        url: `${base}/index.html?v=official-local-v1`,
         height: 720,
         width: 980,
         fullscreen: false
