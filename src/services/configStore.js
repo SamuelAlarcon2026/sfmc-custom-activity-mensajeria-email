@@ -1,15 +1,76 @@
 const fs = require('fs/promises');
 const path = require('path');
+const os = require('os');
 const { v4: uuidv4 } = require('uuid');
 const env = require('../config/env');
 
+let activeDataDir = env.dataDir;
+let dataDirWarningLogged = false;
+
+function fallbackDataDirs() {
+  return [
+    path.resolve(process.cwd(), 'data'),
+    path.join(os.tmpdir(), 'sfmc-private-relay-custom-activity')
+  ];
+}
+
+function isPermissionError(error) {
+  return ['EACCES', 'EPERM', 'EROFS'].includes(error?.code);
+}
+
+async function tryPrepareDataDir(candidateDir) {
+  await fs.mkdir(candidateDir, { recursive: true });
+  await fs.mkdir(path.join(candidateDir, 'snapshots'), { recursive: true });
+
+  // Probe writability explicitly. Some platforms allow mkdir but fail on writes.
+  const probePath = path.join(candidateDir, '.write-probe');
+  await fs.writeFile(probePath, new Date().toISOString(), 'utf8');
+  await fs.rm(probePath, { force: true });
+
+  return candidateDir;
+}
+
 async function ensureDataDir() {
-  await fs.mkdir(env.dataDir, { recursive: true });
-  await fs.mkdir(path.join(env.dataDir, 'snapshots'), { recursive: true });
+  const candidates = [activeDataDir, ...fallbackDataDirs()]
+    .filter(Boolean)
+    .map((candidate) => path.resolve(candidate));
+
+  const uniqueCandidates = [...new Set(candidates)];
+  let lastError;
+
+  for (const candidate of uniqueCandidates) {
+    try {
+      activeDataDir = await tryPrepareDataDir(candidate);
+
+      if (activeDataDir !== path.resolve(env.dataDir) && !dataDirWarningLogged) {
+        console.warn(
+          `[configStore] DATA_DIR "${env.dataDir}" is not writable. ` +
+          `Using fallback "${activeDataDir}". Snapshots may be ephemeral unless a persistent disk is mounted.`
+        );
+        dataDirWarningLogged = true;
+      }
+
+      return activeDataDir;
+    } catch (error) {
+      lastError = error;
+
+      if (!isPermissionError(error)) {
+        // Try the remaining candidates anyway. Some Render environments can fail
+        // for different filesystem reasons before a writable fallback is reached.
+        continue;
+      }
+    }
+  }
+
+  throw lastError;
+}
+
+function getActiveDataDir() {
+  return activeDataDir;
 }
 
 function getStorePath(name) {
-  return path.join(env.dataDir, name);
+  return path.join(activeDataDir, name);
 }
 
 async function readJson(name, fallback) {
@@ -86,7 +147,7 @@ async function saveSnapshot(snapshot) {
 
   await ensureDataDir();
   await fs.writeFile(
-    path.join(env.dataDir, 'snapshots', `${snapshotId}.json`),
+    path.join(activeDataDir, 'snapshots', `${snapshotId}.json`),
     JSON.stringify(normalized, null, 2),
     'utf8'
   );
@@ -99,7 +160,7 @@ async function getSnapshot(snapshotId) {
 
   await ensureDataDir();
   try {
-    const content = await fs.readFile(path.join(env.dataDir, 'snapshots', `${snapshotId}.json`), 'utf8');
+    const content = await fs.readFile(path.join(activeDataDir, 'snapshots', `${snapshotId}.json`), 'utf8');
     return JSON.parse(content);
   } catch {
     return null;
@@ -122,6 +183,7 @@ async function getMessageStatus(messageId) {
 
 module.exports = {
   ensureDataDir,
+  getActiveDataDir,
   saveDraftConfig,
   savePublishedConfig,
   getPublishedConfig,

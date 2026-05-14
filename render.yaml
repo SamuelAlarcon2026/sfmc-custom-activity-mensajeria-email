@@ -13,6 +13,7 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      # If you deploy without the disk below, change this to ./data or let the app fallback automatically.
       - key: DATA_DIR
         value: /data
       - key: JWT_REQUIRED

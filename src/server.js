@@ -7,7 +7,7 @@ const rateLimit = require('express-rate-limit');
 const env = require('./config/env');
 const configRoute = require('./routes/configRoute');
 const activityRoutes = require('./routes/activityRoutes');
-const { ensureDataDir } = require('./services/configStore');
+const { ensureDataDir, getActiveDataDir } = require('./services/configStore');
 
 const app = express();
 
@@ -48,7 +48,8 @@ app.get('/health', (_req, res) => {
   res.json({
     status: 'ok',
     service: 'sfmc-private-relay-custom-activity',
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    dataDir: getActiveDataDir()
   });
 });
 
@@ -85,6 +86,7 @@ ensureDataDir()
     app.listen(env.port, () => {
       console.log(`SFMC Private Relay Custom Activity listening on port ${env.port}`);
       console.log(`Public base URL: ${env.publicBaseUrl}`);
+      console.log(`Data directory: ${getActiveDataDir()}`);
     });
   })
   .catch((error) => {

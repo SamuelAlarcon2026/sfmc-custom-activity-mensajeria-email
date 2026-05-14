@@ -86,6 +86,40 @@ Debe corresponder al secreto con el que Journey Builder firma los payloads JWT d
 
 ## Requisitos en Render
 
+## Fix Render: `EACCES: permission denied, mkdir '/data'`
+
+Si ves este error en Render:
+
+```text
+Unable to initialize data directory: Error: EACCES: permission denied, mkdir '/data'
+```
+
+significa que `DATA_DIR=/data` está configurado, pero el servicio no tiene un persistent disk montado en `/data` o Render no lo ha aplicado al servicio actual.
+
+Opciones:
+
+1. Para desbloquear el deploy rápido, usa:
+
+```bash
+DATA_DIR=./data
+```
+
+Esto permite arrancar, pero el almacenamiento puede ser efímero en redeploys.
+
+2. Para producción, crea/adjunta un persistent disk en Render:
+
+```text
+Mount path: /data
+```
+
+y entonces usa:
+
+```bash
+DATA_DIR=/data
+```
+
+Desde la versión `0.1.1`, la app no se cae si `/data` no es writable: hace fallback a un directorio escribible y lo muestra en `/health`. Aun así, para snapshots publicados en journeys reales, se recomienda persistent disk.
+
 Crea un Web Service de Node.js.
 
 Build command:
@@ -319,3 +353,12 @@ UI_ENDPOINTS_ALLOW_UNSIGNED=false
 ```
 
 y sustituir esos botones por una validación basada en token de usuario, gateway autenticado o una capa propia de sesión. Además, `ENABLE_TEST_SEND=false` evita que el botón de test envíe al relay real aunque `RELAY_MODE=http`.
+
+## Changelog
+
+### 0.1.1
+
+- Corrige fallo de deploy en Render cuando `DATA_DIR=/data` no es escribible.
+- Añade fallback automático a un directorio writable.
+- Añade `dataDir` en `/health`.
+- Actualiza `.env.example` para usar `./data` como primer deploy seguro.
