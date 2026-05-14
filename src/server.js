@@ -1,7 +1,6 @@
 const path = require('path');
 const express = require('express');
 const cors = require('cors');
-const helmet = require('helmet');
 const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
 const env = require('./config/env');
@@ -13,17 +12,15 @@ const app = express();
 
 app.set('trust proxy', 1);
 
-app.use(helmet({
-  contentSecurityPolicy: false,
-  crossOriginEmbedderPolicy: false,
-  // Journey Builder loads the config modal in a Salesforce iframe.
-  // Helmet's default X-Frame-Options:SAMEORIGIN blocks that iframe.
-  xFrameOptions: false
-}));
-
+/**
+ * Do not use X-Frame-Options or a restrictive CSP here.
+ * Journey Builder opens the config UI inside a Salesforce iframe.
+ * Headers such as X-Frame-Options:SAMEORIGIN or frame-ancestors 'self'
+ * make the activity appear in the palette but prevent the modal from opening.
+ */
 app.use((_req, res, next) => {
-  // Do not set X-Frame-Options. It must be absent for SFMC Journey Builder.
   res.removeHeader('X-Frame-Options');
+  res.removeHeader('Content-Security-Policy');
   next();
 });
 
@@ -53,22 +50,37 @@ app.use(express.urlencoded({
   limit: '5mb'
 }));
 
+function sendIndex(_req, res) {
+  res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
+}
+
 app.get('/health', (_req, res) => {
   res.json({
     status: 'ok',
     service: 'sfmc-private-relay-custom-activity',
+    version: require('../package.json').version,
     timestamp: new Date().toISOString(),
     dataDir: getActiveDataDir()
   });
 });
 
-app.get('/', (_req, res) => {
-  res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
-});
+app.get('/', sendIndex);
+app.get('/index.html', sendIndex);
+app.get('/ui', sendIndex);
+app.get('/ui/', sendIndex);
+app.get('/ui/index.html', sendIndex);
 
 app.use(configRoute);
 app.use(activityRoutes);
-app.use(express.static(path.join(__dirname, '..', 'public')));
+app.use(express.static(path.join(__dirname, '..', 'public'), {
+  etag: false,
+  maxAge: 0,
+  setHeaders: (res) => {
+    res.removeHeader('X-Frame-Options');
+    res.removeHeader('Content-Security-Policy');
+    res.setHeader('Cache-Control', 'no-store');
+  }
+}));
 
 app.use((req, res) => {
   res.status(404).json({
@@ -98,7 +110,7 @@ ensureDataDir()
   .then(() => {
     app.listen(env.port, () => {
       console.log(`SFMC Private Relay Custom Activity listening on port ${env.port}`);
-      console.log(`Public base URL: ${env.publicBaseUrl}`);
+      console.log(`Public base URL: ${env.publicBaseUrl || '(derived from request)'}`);
       console.log(`Data directory: ${getActiveDataDir()}`);
     });
   })

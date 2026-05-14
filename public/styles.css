@@ -171,3 +171,5 @@ button:hover {
     margin-top: 10px;
   }
 }
+
+.shell.compact { max-width: 760px; }

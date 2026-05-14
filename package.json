@@ -1,7 +1,7 @@
 {
   "name": "sfmc-private-relay-custom-activity",
-  "version": "0.1.2",
-  "description": "Salesforce Marketing Cloud Journey Builder Custom Activity to send emails through a private relay using SFMC Content Builder snapshots.",
+  "version": "0.1.3",
+  "description": "Salesforce Marketing Cloud Journey Builder Custom Activity to send emails through a private relay using SFMC Content Builder snapshots. Minimal UI-open stable release.",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",

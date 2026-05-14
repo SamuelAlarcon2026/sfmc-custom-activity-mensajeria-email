@@ -26,3 +26,6 @@ services:
         value: Relay_Email_Events
       - key: DE_ACTIVITY_CONFIG_KEY
         value: Relay_Email_ActivityConfig
+      # Optional. If your tenant needs it, set this to the External Key of the Journey Builder Activity component.
+      # - key: APP_EXTENSION_KEY
+      #   value: your-journey-builder-activity-external-key

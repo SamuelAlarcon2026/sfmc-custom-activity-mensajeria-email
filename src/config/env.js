@@ -40,7 +40,8 @@ const env = {
 
   corsOrigin: process.env.CORS_ORIGIN || '',
   uiEndpointsAllowUnsigned: String(process.env.UI_ENDPOINTS_ALLOW_UNSIGNED || 'true').toLowerCase() === 'true',
-  enableTestSend: String(process.env.ENABLE_TEST_SEND || 'false').toLowerCase() === 'true'
+  enableTestSend: String(process.env.ENABLE_TEST_SEND || 'false').toLowerCase() === 'true',
+  applicationExtensionKey: process.env.APP_EXTENSION_KEY || process.env.APPLICATION_EXTENSION_KEY || ''
 };
 
 module.exports = env;

@@ -1,127 +1,124 @@
 /* global Postmonger */
 (function () {
-  const connection = window.Postmonger ? new Postmonger.Session() : null;
-  let payload = {};
-  let authTokens = {};
-  let endpoints = {};
-  let activityId = '';
-  let journeyId = '';
-  let journeyVersionId = '';
+  var connection = window.Postmonger ? new Postmonger.Session() : null;
+  var payload = {};
+  var activityId = '';
+  var journeyId = '';
+  var journeyVersionId = '';
 
-  const fields = {
+  var fields = {
     activityName: document.getElementById('activityName'),
-    environment: document.getElementById('environment'),
-    locale: document.getElementById('locale'),
+    emailAddress: document.getElementById('emailAddress'),
     contentAssetId: document.getElementById('contentAssetId'),
     subject: document.getElementById('subject'),
-    preheader: document.getElementById('preheader'),
     fromName: document.getElementById('fromName'),
     fromEmail: document.getElementById('fromEmail'),
-    replyTo: document.getElementById('replyTo'),
-    openTracking: document.getElementById('openTracking'),
-    clickTracking: document.getElementById('clickTracking'),
-    tokenMapping: document.getElementById('tokenMapping'),
-    defaults: document.getElementById('defaults'),
-    sampleData: document.getElementById('sampleData'),
-    testRecipient: document.getElementById('testRecipient'),
     output: document.getElementById('output')
   };
 
-  function parseJsonField(field, fallback) {
-    try {
-      return JSON.parse(field.value || '{}');
-    } catch (error) {
-      field.classList.add('error');
-      throw new Error(`JSON inválido en ${field.id}: ${error.message}`);
-    }
-  }
-
-  function clearErrors() {
-    Object.values(fields).forEach((field) => {
-      if (field && field.classList) field.classList.remove('error');
-    });
-  }
-
   function setOutput(value) {
+    if (!fields.output) return;
     fields.output.textContent = typeof value === 'string'
       ? value
       : JSON.stringify(value, null, 2);
   }
 
-  function getActivityConfig() {
-    clearErrors();
-
-    const tokenMapping = parseJsonField(fields.tokenMapping, {});
-    const defaults = parseJsonField(fields.defaults, {});
-
+  function getConfig() {
     return {
-      activityId,
-      journeyId,
-      journeyVersionId,
+      activityId: activityId || 'unknownActivity',
+      journeyId: journeyId || 'unknownJourney',
+      journeyVersionId: journeyVersionId || 'unknownVersion',
       activityName: fields.activityName.value || 'Private Relay Email',
-      environment: fields.environment.value || 'uat',
-      locale: fields.locale.value || 'es-ES',
-      contentAssetId: fields.contentAssetId.value.trim(),
-      subject: fields.subject.value,
-      preheader: fields.preheader.value,
+      environment: 'uat',
+      locale: 'es-ES',
+      contentAssetId: (fields.contentAssetId.value || '').trim(),
+      subject: fields.subject.value || '',
+      preheader: '',
       sender: {
-        fromName: fields.fromName.value,
-        fromEmail: fields.fromEmail.value,
-        replyTo: fields.replyTo.value
+        fromName: fields.fromName.value || '',
+        fromEmail: fields.fromEmail.value || '',
+        replyTo: ''
       },
-      tokenMapping,
-      defaults,
+      tokenMapping: {
+        emailAddress: fields.emailAddress.value || '{{Contact.Attribute.Profile.EmailAddress}}',
+        firstName: '{{Contact.Attribute.Profile.FirstName}}'
+      },
+      defaults: {
+        firstName: 'cliente'
+      },
       tracking: {
-        openTracking: fields.openTracking.checked,
-        clickTracking: fields.clickTracking.checked
+        openTracking: true,
+        clickTracking: true
       },
       snapshotMode: 'publish'
     };
   }
 
-  function setActivityConfig(config) {
+  function setConfig(config) {
     if (!config) return;
 
-    fields.activityName.value = config.activityName || fields.activityName.value || '';
-    fields.environment.value = config.environment || 'uat';
-    fields.locale.value = config.locale || 'es-ES';
+    fields.activityName.value = config.activityName || fields.activityName.value;
+    fields.emailAddress.value = (config.tokenMapping && config.tokenMapping.emailAddress) || fields.emailAddress.value;
     fields.contentAssetId.value = config.contentAssetId || '';
     fields.subject.value = config.subject || '';
-    fields.preheader.value = config.preheader || '';
-    fields.fromName.value = config.sender?.fromName || '';
-    fields.fromEmail.value = config.sender?.fromEmail || '';
-    fields.replyTo.value = config.sender?.replyTo || '';
-    fields.openTracking.checked = config.tracking?.openTracking !== false;
-    fields.clickTracking.checked = config.tracking?.clickTracking !== false;
+    fields.fromName.value = (config.sender && config.sender.fromName) || '';
+    fields.fromEmail.value = (config.sender && config.sender.fromEmail) || '';
+  }
 
-    if (config.tokenMapping) {
-      fields.tokenMapping.value = JSON.stringify(config.tokenMapping, null, 2);
+  function getStoredConfig(data) {
+    try {
+      var inArguments = data && data.arguments && data.arguments.execute && data.arguments.execute.inArguments;
+      if (!Array.isArray(inArguments)) return null;
+
+      for (var i = 0; i < inArguments.length; i += 1) {
+        if (inArguments[i] && inArguments[i].__relayActivityConfig) {
+          return JSON.parse(inArguments[i].__relayActivityConfig);
+        }
+      }
+    } catch (error) {
+      setOutput('No se pudo leer la configuración guardada: ' + error.message);
     }
 
-    if (config.defaults) {
-      fields.defaults.value = JSON.stringify(config.defaults, null, 2);
-    }
+    return null;
   }
 
   function buildInArguments(config) {
-    const args = {
+    return [{
       contactKey: '{{Contact.Key}}',
+      emailAddress: config.tokenMapping.emailAddress,
+      firstName: config.tokenMapping.firstName,
       __relayActivityConfig: JSON.stringify(config)
-    };
-
-    Object.entries(config.tokenMapping || {}).forEach(([key, value]) => {
-      args[key] = value;
-    });
-
-    if (!args.emailAddress) {
-      args.emailAddress = '{{Contact.Attribute.Profile.EmailAddress}}';
-    }
-
-    return [args];
+    }];
   }
 
-  function updatePayload() {
-    const config = getActivityConfig();
+  function validate(config) {
+    var errors = [];
+
+    if (!config.contentAssetId) errors.push('Content Asset ID es obligatorio.');
+    if (!config.subject) errors.push('Subject es obligatorio.');
+    if (!config.sender.fromName) errors.push('From Name es obligatorio.');
+    if (!config.sender.fromEmail) errors.push('From Email es obligatorio.');
+    if (!config.tokenMapping.emailAddress) errors.push('Email del destinatario es obligatorio.');
+
+    return errors;
+  }
+
+  function save() {
+    var config = getConfig();
+    var errors = validate(config);
+
+    if (errors.length) {
+      setOutput({
+        valid: false,
+        errors: errors
+      });
+
+      if (connection) {
+        connection.trigger('ready');
+      }
+
+      return;
+    }
 
     payload.name = config.activityName;
     payload.metaData = payload.metaData || {};
@@ -131,154 +128,48 @@
     payload.arguments.execute = payload.arguments.execute || {};
     payload.arguments.execute.inArguments = buildInArguments(config);
 
-    return payload;
-  }
-
-  function saveAndClose() {
-    try {
-      updatePayload();
-      if (connection) {
-        connection.trigger('updateActivity', payload);
-      } else {
-        setOutput({
-          message: 'Postmonger no disponible. Payload generado:',
-          payload
-        });
-      }
-    } catch (error) {
-      setOutput(error.message);
-    }
-  }
-
-  async function apiPost(path, body) {
-    const headers = {
-      'Content-Type': 'application/json'
-    };
-
-    if (authTokens && authTokens.fuel2token) {
-      headers.Authorization = `Bearer ${authTokens.fuel2token}`;
-    }
-
-    const response = await fetch(path, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body)
+    setOutput({
+      saving: true,
+      activityName: config.activityName
     });
 
-    const data = await response.json().catch(() => ({}));
-
-    if (!response.ok) {
-      throw new Error(data.message || `HTTP ${response.status}`);
-    }
-
-    return data;
-  }
-
-  async function handleValidate() {
-    try {
-      const config = getActivityConfig();
-      const errors = [];
-
-      if (!config.contentAssetId) errors.push('Content Asset ID es obligatorio.');
-      if (!config.subject) errors.push('Subject es obligatorio.');
-      if (!config.sender.fromName) errors.push('From Name es obligatorio.');
-      if (!config.sender.fromEmail) errors.push('From Email es obligatorio.');
-      if (!config.tokenMapping.emailAddress) errors.push('tokenMapping.emailAddress es obligatorio.');
-
-      if (errors.length) {
-        setOutput({
-          valid: false,
-          errors
-        });
-        return;
-      }
-
-      setOutput({
-        valid: true,
-        message: 'Validación local correcta. La validación final se ejecutará en /validate y /publish.'
-      });
-    } catch (error) {
-      setOutput(error.message);
+    if (connection) {
+      connection.trigger('updateActivity', payload);
     }
   }
 
-  async function handlePreview() {
-    try {
-      const config = getActivityConfig();
-      const sampleData = parseJsonField(fields.sampleData, {});
-      const data = await apiPost('/preview', {
-        activityConfig: config,
-        sampleData
-      });
-      setOutput(data);
-    } catch (error) {
-      setOutput(error.message);
-    }
-  }
-
-  async function handleTest() {
-    try {
-      const config = getActivityConfig();
-      const sampleData = parseJsonField(fields.sampleData, {});
-      const testRecipient = fields.testRecipient.value || sampleData.emailAddress;
-      const data = await apiPost('/test', {
-        activityConfig: config,
-        sampleData,
-        testRecipient
-      });
-      setOutput(data);
-    } catch (error) {
-      setOutput(error.message);
-    }
-  }
-
-  function initJourneyBuilderEvents() {
+  function init() {
     if (!connection) {
-      setOutput('Modo local: Postmonger no disponible.');
+      setOutput('Postmonger no está disponible. Abierto en modo local.');
       return;
     }
 
     connection.on('initActivity', function (data) {
       payload = data || {};
       activityId = payload.activityId || payload.activityObjectID || payload.key || payload.id || '';
-      journeyId = payload.journeyId || payload.definitionInstanceId || '';
+      journeyId = payload.journeyId || payload.definitionInstanceId || payload.interactionId || '';
       journeyVersionId = payload.journeyVersionId || payload.definitionId || '';
 
-      const args = payload.arguments?.execute?.inArguments || [];
-      const configArg = args
-        .map((item) => item && item.__relayActivityConfig)
-        .find(Boolean);
+      setConfig(getStoredConfig(payload));
 
-      if (configArg) {
-        try {
-          setActivityConfig(JSON.parse(configArg));
-        } catch (error) {
-          setOutput(`No se pudo leer configuración existente: ${error.message}`);
-        }
-      }
+      setOutput({
+        status: 'ready',
+        message: 'Modal cargado correctamente. Completa los campos y pulsa Done.',
+        activityId: activityId || 'unknown'
+      });
 
       connection.trigger('ready');
       connection.trigger('requestTokens');
       connection.trigger('requestEndpoints');
     });
 
-    connection.on('requestedTokens', function (tokens) {
-      authTokens = tokens || {};
-    });
+    connection.on('clickedNext', save);
+    connection.on('clickedDone', save);
 
-    connection.on('requestedEndpoints', function (data) {
-      endpoints = data || {};
-    });
-
-    connection.on('clickedNext', saveAndClose);
-    connection.on('clickedDone', saveAndClose);
-
+    // Important: signal readiness immediately so Journey Builder does not keep
+    // the modal in a pending state while it sends initActivity.
     connection.trigger('ready');
   }
 
-  document.getElementById('validateBtn').addEventListener('click', handleValidate);
-  document.getElementById('previewBtn').addEventListener('click', handlePreview);
-  document.getElementById('testBtn').addEventListener('click', handleTest);
-
-  initJourneyBuilderEvents();
-})();
+  init();
+}());

@@ -14,28 +14,74 @@ function getBaseUrl(req) {
   return `${protocol}://${host}`.replace(/\/+$/, '');
 }
 
-router.get('/config.json', (req, res) => {
+function endpoint(baseUrl, path) {
+  return `${baseUrl}${path}`;
+}
+
+router.get(['/config.json', '/config'], (req, res) => {
   const baseUrl = getBaseUrl(req);
+
+  const configurationArguments = {
+    save: {
+      url: endpoint(baseUrl, '/save'),
+      verb: 'POST',
+      body: '',
+      header: '',
+      format: 'json',
+      useJwt: true
+    },
+    validate: {
+      url: endpoint(baseUrl, '/validate'),
+      verb: 'POST',
+      body: '',
+      header: '',
+      format: 'json',
+      useJwt: true
+    },
+    publish: {
+      url: endpoint(baseUrl, '/publish'),
+      verb: 'POST',
+      body: '',
+      header: '',
+      format: 'json',
+      useJwt: true
+    },
+    stop: {
+      url: endpoint(baseUrl, '/stop'),
+      verb: 'POST',
+      body: '',
+      header: '',
+      format: 'json',
+      useJwt: true
+    }
+  };
+
+  // Some SFMC tenants require this to match the Journey Builder Activity
+  // component external key from the Installed Package. Leave it empty unless
+  // APP_EXTENSION_KEY is configured in Render.
+  if (env.applicationExtensionKey) {
+    configurationArguments.applicationExtensionKey = env.applicationExtensionKey;
+  }
 
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.removeHeader('X-Frame-Options');
+  res.removeHeader('Content-Security-Policy');
 
   res.json({
     workflowApiVersion: '1.1',
     type: 'REST',
     metaData: {
-      icon: `${baseUrl}/images/icon.png`,
+      icon: endpoint(baseUrl, '/images/icon.png'),
+      iconSmall: endpoint(baseUrl, '/images/icon.png'),
       category: 'message',
-      isConfigured: false
+      isConfigured: false,
+      version: '0.1.3'
     },
     lang: {
       'en-US': {
         name: 'Private Relay Email',
-        description: 'Send an email using SFMC Content Builder snapshot and a private relay'
-      },
-      'es-ES': {
-        name: 'Email Relay Privado',
-        description: 'Envía un email usando snapshot de Content Builder y relay privado'
+        description: 'Send email through a private relay using an SFMC content snapshot'
       }
     },
     arguments: {
@@ -46,7 +92,7 @@ router.get('/config.json', (req, res) => {
           }
         ],
         outArguments: [],
-        url: `${baseUrl}/execute`,
+        url: endpoint(baseUrl, '/execute'),
         verb: 'POST',
         body: '',
         header: '',
@@ -55,40 +101,33 @@ router.get('/config.json', (req, res) => {
         timeout: 10000
       }
     },
-    configurationArguments: {
-      save: {
-        url: `${baseUrl}/save`,
-        verb: 'POST',
-        useJwt: true
-      },
-      validate: {
-        url: `${baseUrl}/validate`,
-        verb: 'POST',
-        useJwt: true
-      },
-      publish: {
-        url: `${baseUrl}/publish`,
-        verb: 'POST',
-        useJwt: true
-      },
-      stop: {
-        url: `${baseUrl}/stop`,
-        verb: 'POST',
-        useJwt: true
+    configurationArguments,
+    wizardSteps: [
+      {
+        label: 'Configuration',
+        key: 'configuration'
       }
-    },
+    ],
     userInterfaces: {
       configModal: {
-        url: `${baseUrl}/index.html`,
-        height: 760,
-        width: 1040,
+        url: endpoint(baseUrl, '/ui/index.html'),
+        height: 700,
+        width: 900,
         fullscreen: false
       }
     },
     schema: {
       arguments: {
         execute: {
-          inArguments: [],
+          inArguments: [
+            {
+              contactKey: {
+                dataType: 'Text',
+                isNullable: false,
+                direction: 'in'
+              }
+            }
+          ],
           outArguments: []
         }
       }

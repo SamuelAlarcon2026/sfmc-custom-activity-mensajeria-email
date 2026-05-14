@@ -397,3 +397,31 @@ Recomendado en Render:
 PUBLIC_BASE_URL=https://TU-APP.onrender.com
 ```
 
+
+
+## v0.1.3 - Fix para modal que no abre en Journey Builder
+
+Esta versión reduce la UI a lo mínimo y cambia el `config.json` para maximizar compatibilidad con Journey Builder:
+
+- Añade `wizardSteps`.
+- Expone el modal en `/ui/index.html`.
+- Elimina cualquier header que pueda bloquear iframes.
+- Añade `iconSmall`.
+- Añade `body`, `header`, `format` y `useJwt` en endpoints de configuración.
+- Permite definir `APP_EXTENSION_KEY` si tu tenant requiere que coincida con el External Key del componente Journey Builder Activity del Installed Package.
+
+Después de desplegar, valida estas URLs:
+
+```text
+https://TU-APP.onrender.com/health
+https://TU-APP.onrender.com/config.json
+https://TU-APP.onrender.com/ui/index.html
+```
+
+En el Installed Package, el Endpoint URL debe seguir siendo:
+
+```text
+https://TU-APP.onrender.com/config.json
+```
+
+Para abrir la configuración en el canvas de Journey Builder, normalmente hay que hacer doble click sobre la actividad o seleccionar la actividad y usar la opción de configuración.
