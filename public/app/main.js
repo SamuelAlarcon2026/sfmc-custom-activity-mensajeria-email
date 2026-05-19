@@ -109,8 +109,8 @@
       '<meta name="viewport" content="width=device-width, initial-scale=1">',
       '<base target="_blank">',
       '<style>',
-      'html,body{margin:0;padding:0;min-height:100%;}',
-      'img{max-width:100%;}',
+      'html,body{margin:0;padding:0;background:#ffffff;min-height:100%;}',
+      'img{max-width:100%;height:auto;}',
       '</style>',
       '</head>',
       '<body>',
@@ -120,26 +120,100 @@
     ].join('');
   }
 
+  function sanitizePreviewFragment(html) {
+    var value = String(html || '');
+
+    if (!value.trim()) {
+      return '<div style="font-family:Arial,sans-serif;padding:24px;color:#3e3e3c;">No hay HTML para previsualizar.</div>';
+    }
+
+    var styleMatches = value.match(/<style\b[^>]*>[\s\S]*?<\/style>/gi) || [];
+    var styles = styleMatches.join('\n');
+
+    var bodyMatch = value.match(/<body\b[^>]*>([\s\S]*?)<\/body>/i);
+    var fragment = bodyMatch ? bodyMatch[1] : value;
+
+    fragment = fragment
+      .replace(/<!doctype[^>]*>/gi, '')
+      .replace(/<html\b[^>]*>/gi, '')
+      .replace(/<\/html>/gi, '')
+      .replace(/<head\b[^>]*>[\s\S]*?<\/head>/gi, '')
+      .replace(/<body\b[^>]*>/gi, '')
+      .replace(/<\/body>/gi, '')
+      .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
+      .replace(/<iframe\b[^>]*>[\s\S]*?<\/iframe>/gi, '')
+      .replace(/<object\b[^>]*>[\s\S]*?<\/object>/gi, '')
+      .replace(/<embed\b[^>]*>[\s\S]*?<\/embed>/gi, '')
+      .replace(/<form\b[^>]*>[\s\S]*?<\/form>/gi, '')
+      .replace(/\son[a-z]+\s*=\s*"[^"]*"/gi, '')
+      .replace(/\son[a-z]+\s*=\s*'[^']*'/gi, '')
+      .replace(/\son[a-z]+\s*=\s*[^\s>]+/gi, '')
+      .replace(/\s(href|src)\s*=\s*"\s*javascript:[^"]*"/gi, ' $1="#"')
+      .replace(/\s(href|src)\s*=\s*'\s*javascript:[^']*'/gi, ' $1="#"');
+
+    var combined = styles + '\n' + fragment;
+
+    if (!/<[a-z][\s\S]*>/i.test(combined)) {
+      return '<pre style="white-space:pre-wrap;font-family:Arial,sans-serif;padding:24px;color:#3e3e3c;">' + escapeHtml(combined) + '</pre>';
+    }
+
+    return combined;
+  }
+
   function hydratePreviewFrames() {
     if (!state.preview || state.step !== 3) return;
 
-    var html = normalisePreviewHtml(state.preview.html || '');
+    var fullHtml = normalisePreviewHtml(state.preview.html || '');
+    var fragment = sanitizePreviewFragment(fullHtml);
 
-    $all('[data-preview-frame]').forEach(function (iframe) {
+    $all('[data-preview-html]').forEach(function (container) {
+      var mode = container.getAttribute('data-preview-html') || 'desktop';
+      var maxWidth = mode === 'mobile' ? '390px' : '100%';
+
       try {
-        iframe.removeAttribute('src');
-        iframe.srcdoc = html;
-      } catch (srcdocErr) {
-        try {
-          var blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-          var url = window.URL.createObjectURL(blob);
-          state.previewBlobUrls.push(url);
-          iframe.src = url;
-        } catch (blobErr) {
-          state.errors = ['No se pudo pintar el preview en iframe: ' + (blobErr.message || srcdocErr.message || 'error desconocido')];
+        if (container.attachShadow && !container._previewShadow) {
+          container._previewShadow = container.attachShadow({ mode: 'open' });
         }
+
+        var root = container._previewShadow || container;
+        root.innerHTML = [
+          '<style>',
+          ':host{all:initial;display:block;background:#fff;color:#181818;}',
+          '.preview-root{box-sizing:border-box;width:100%;max-width:', maxWidth, ';min-height:520px;margin:0 auto;background:#fff;color:#181818;overflow:auto;}',
+          '.preview-root *{box-sizing:border-box;}',
+          '.preview-root img{max-width:100%;height:auto;}',
+          '.preview-root a{cursor:pointer;}',
+          '</style>',
+          '<div class="preview-root">',
+          fragment,
+          '</div>'
+        ].join('');
+
+        Array.prototype.slice.call(root.querySelectorAll ? root.querySelectorAll('a') : []).forEach(function (link) {
+          link.setAttribute('target', '_blank');
+          link.setAttribute('rel', 'noopener noreferrer');
+        });
+      } catch (err) {
+        container.innerHTML = '<div class="slds-box slds-theme_error">No se pudo pintar el HTML del preview: ' + escapeHtml(err.message || String(err)) + '</div>';
       }
     });
+
+    var rawTextarea = $('[data-preview-raw]');
+    if (rawTextarea) rawTextarea.value = fullHtml;
+
+    var openButton = $('#open-preview-new-tab');
+    if (openButton) {
+      openButton.onclick = function () {
+        try {
+          var blob = new Blob([fullHtml], { type: 'text/html;charset=utf-8' });
+          var url = window.URL.createObjectURL(blob);
+          state.previewBlobUrls.push(url);
+          window.open(url, '_blank', 'noopener,noreferrer');
+        } catch (err) {
+          setErrors(['No se pudo abrir el preview en nueva pestaña: ' + (err.message || String(err))]);
+        }
+      };
+    }
   }
 
   function isEmail(value) {
@@ -924,15 +998,22 @@
       '<p class="slds-text-body_small slds-text-color_weak">HTML renderizado: ', escapeHtml(htmlLength), ' caracteres</p>',
       '</div>',
       renderPreviewDiagnostics(preview),
+      '<div class="slds-m-bottom_medium">',
+      '<button type="button" class="slds-button slds-button_neutral" id="open-preview-new-tab">Abrir preview en nueva pestaña</button>',
+      '</div>',
       '<div class="slds-grid slds-gutters slds-wrap">',
       '<div class="slds-col slds-size_1-of-2">',
       '<h3 class="slds-text-heading_small slds-m-bottom_small">Desktop</h3>',
-      '<iframe title="Preview desktop" class="preview-frame desktop" data-preview-frame="desktop" sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"></iframe>',
+      '<div class="preview-surface desktop" data-preview-html="desktop"></div>',
       '</div>',
       '<div class="slds-col slds-size_1-of-2">',
       '<h3 class="slds-text-heading_small slds-m-bottom_small">Mobile</h3>',
-      '<iframe title="Preview mobile" class="preview-frame mobile" data-preview-frame="mobile" sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"></iframe>',
-      '</div></div>'
+      '<div class="preview-surface mobile" data-preview-html="mobile"></div>',
+      '</div></div>',
+      '<details class="slds-m-top_medium">',
+      '<summary>Ver HTML renderizado bruto</summary>',
+      '<textarea class="slds-textarea preview-raw" data-preview-raw readonly></textarea>',
+      '</details>'
     ].join('');
   }
 
@@ -1151,7 +1232,7 @@
 
     if (!hasReceivedInitActivity) {
       state.notices = [{
-        message: 'Journey Builder todavía no ha enviado initActivity. Esta versión usa Postmonger oficial. Revisa que el Installed Package apunte a /config.json?v=postmonger-official-v11 y que SFMC esté cargando /index.html?v=postmonger-official-v11.',
+        message: 'Journey Builder todavía no ha enviado initActivity. Esta versión usa Postmonger oficial. Revisa que el Installed Package apunte a /config.json?v=preview-v13 y que SFMC esté cargando /index.html?v=preview-v13.',
         variant: 'warning'
       }];
       render();

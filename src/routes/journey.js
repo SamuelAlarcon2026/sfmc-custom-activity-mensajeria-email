@@ -77,7 +77,7 @@ function buildConfigJson() {
     },
     userInterfaces: {
       configModal: {
-        url: `${base}/index.html?v=preview-v12`,
+        url: `${base}/index.html?v=preview-v13`,
         height: 720,
         width: 980,
         fullscreen: false

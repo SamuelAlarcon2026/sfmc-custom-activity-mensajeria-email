@@ -54,3 +54,27 @@ code {
   border-radius: .2rem;
   background: #ecebea;
 }
+
+.preview-surface {
+  display: block;
+  min-height: 520px;
+  border: 1px solid #dddbda;
+  background: #fff;
+  overflow: auto;
+}
+
+.preview-surface.desktop {
+  width: 100%;
+}
+
+.preview-surface.mobile {
+  width: 390px;
+  max-width: 100%;
+  margin: 0 auto;
+}
+
+.preview-raw {
+  min-height: 240px;
+  font-family: Consolas, Monaco, monospace;
+  font-size: 12px;
+}
