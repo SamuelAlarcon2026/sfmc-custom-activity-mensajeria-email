@@ -111,3 +111,13 @@ code {
 .preview-grid {
   row-gap: 1rem;
 }
+
+
+.schema-field-select {
+  min-width: 240px;
+}
+
+.mapping-table select,
+.mapping-table input {
+  min-width: 220px;
+}

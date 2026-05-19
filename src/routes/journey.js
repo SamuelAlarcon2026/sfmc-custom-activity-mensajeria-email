@@ -77,7 +77,7 @@ function buildConfigJson() {
     },
     userInterfaces: {
       configModal: {
-        url: `${base}/index.html?v=content-extract-v15`,
+        url: `${base}/index.html?v=schema-dropdown-v16`,
         height: 720,
         width: 980,
         fullscreen: false

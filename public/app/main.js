@@ -53,6 +53,15 @@
     errors: [],
     notices: [],
     previewBlobUrls: [],
+    jbSchema: {
+      loaded: false,
+      loading: false,
+      error: '',
+      fields: [],
+      journeyData: [],
+      contactData: [],
+      requested: false
+    },
     postmongerInitialized: false,
     config: clone(DEFAULT_CONFIG)
   };
@@ -146,6 +155,328 @@
     if (/^{{[\s\S]*}}$/.test(text)) return text;
     return '{{' + text + '}}';
   }
+
+  function cleanSchemaLabel(value) {
+    return String(value == null ? '' : value)
+      .replace(/^{{\s*|\s*}}$/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function stripExpressionBraces(value) {
+    return String(value == null ? '' : value)
+      .replace(/^{{\s*/, '')
+      .replace(/\s*}}$/, '')
+      .trim();
+  }
+
+  function inferSchemaSource(text, fallback) {
+    var lower = String(text || '').toLowerCase();
+
+    if (
+      lower.indexOf('contact.') >= 0 ||
+      lower.indexOf('contact data') >= 0 ||
+      lower.indexOf('contactdata') >= 0 ||
+      lower.indexOf('contactattributes') >= 0 ||
+      lower.indexOf('contact attributes') >= 0 ||
+      lower.indexOf('profile attribute') >= 0
+    ) {
+      return 'contactData';
+    }
+
+    if (
+      lower.indexOf('event.') >= 0 ||
+      lower.indexOf('journey') >= 0 ||
+      lower.indexOf('entry') >= 0 ||
+      lower.indexOf('trigger') >= 0 ||
+      lower.indexOf('eventdefinition') >= 0
+    ) {
+      return 'journeyData';
+    }
+
+    return fallback || 'journeyData';
+  }
+
+  function normalizeSchemaExpression(rawValue, source) {
+    var raw = String(rawValue || '').trim();
+    if (!raw) return '';
+
+    if (/^{{[\s\S]*}}$/.test(raw)) return raw;
+
+    raw = stripExpressionBraces(raw);
+
+    if (/^(Event|Contact|InteractionDefaults)\./i.test(raw)) {
+      return '{{' + raw + '}}';
+    }
+
+    if (source === 'contactData') {
+      return '{{Contact.Attribute.' + raw + '}}';
+    }
+
+    return '{{Event.' + raw + '}}';
+  }
+
+  function schemaFieldSort(a, b) {
+    var sourceCompare = String(a.source || '').localeCompare(String(b.source || ''));
+    if (sourceCompare !== 0) return sourceCompare;
+    return String(a.label || a.expression || '').localeCompare(String(b.label || b.expression || ''));
+  }
+
+  function dedupeSchemaFields(fields) {
+    var seen = {};
+    return (fields || []).filter(function (field) {
+      if (!field || !field.expression) return false;
+      var key = String(field.expression).toLowerCase();
+      if (seen[key]) return false;
+      seen[key] = true;
+      return true;
+    }).sort(schemaFieldSort);
+  }
+
+  function looksLikeSchemaField(node) {
+    if (!node || typeof node !== 'object' || Array.isArray(node)) return false;
+
+    if (node.expression || node.accessor || node.path) return true;
+
+    var hasName = Boolean(node.name || node.label || node.key || node.fieldName || node.field);
+    var hasType = Boolean(node.type || node.dataType || node.fieldType || node.valueType || node.isNullable !== undefined || node.maxLength);
+    var hasChildren = Boolean(node.fields || node.items || node.children || node.attributes || node.schema || node.properties);
+
+    return hasName && hasType && !hasChildren;
+  }
+
+  function fieldRawValue(node) {
+    return node.expression ||
+      node.accessor ||
+      node.path ||
+      node.value ||
+      node.key ||
+      node.fieldName ||
+      node.field ||
+      node.name ||
+      '';
+  }
+
+  function fieldLabel(node, parents, expression) {
+    var base = node.label || node.displayName || node.name || node.fieldName || node.field || node.key || cleanSchemaLabel(expression);
+    base = cleanSchemaLabel(base);
+
+    var group = (parents || [])
+      .map(cleanSchemaLabel)
+      .filter(Boolean)
+      .filter(function (part) {
+        return !/^(schema|fields|items|children|attributes|properties|data|arguments)$/i.test(part);
+      })
+      .slice(-2)
+      .join(' / ');
+
+    return group ? group + ' / ' + base : base;
+  }
+
+  function collectSchemaFields(payload, sourceHint) {
+    var fields = [];
+    var visited = [];
+
+    function walk(node, parents, source, depth) {
+      if (node == null || depth > 10) return;
+
+      if (typeof node !== 'object') return;
+
+      if (visited.indexOf(node) >= 0) return;
+      visited.push(node);
+
+      if (Array.isArray(node)) {
+        node.forEach(function (item) {
+          walk(item, parents, source, depth + 1);
+        });
+        return;
+      }
+
+      var textForSource = [
+        node.source,
+        node.category,
+        node.context,
+        node.type,
+        node.dataType,
+        node.name,
+        node.label,
+        node.key,
+        node.path,
+        node.expression,
+        parents.join('.')
+      ].join(' ');
+
+      var inferredSource = inferSchemaSource(textForSource, source || sourceHint || 'journeyData');
+
+      if (looksLikeSchemaField(node)) {
+        var raw = fieldRawValue(node);
+        var expression = normalizeSchemaExpression(raw, inferredSource);
+        var label = fieldLabel(node, parents, expression);
+
+        if (expression && label && !/undefined|null|\[object object\]/i.test(expression)) {
+          fields.push({
+            label: label,
+            expression: expression,
+            source: inferredSource,
+            type: node.type || node.dataType || node.fieldType || '',
+            raw: raw
+          });
+        }
+      }
+
+      Object.keys(node).forEach(function (key) {
+        if (/^(configurationArguments|arguments|metaData|lang|userInterfaces|execute|save|validate|publish|stop)$/i.test(key)) return;
+
+        var child = node[key];
+        if (child && typeof child === 'object') {
+          var nextParents = parents.slice();
+          if (!/^(items|children|fields|attributes|properties|schema)$/i.test(key)) {
+            nextParents.push(key);
+          }
+          walk(child, nextParents, inferSchemaSource(key, inferredSource), depth + 1);
+        }
+      });
+    }
+
+    walk(payload, [], sourceHint || 'journeyData', 0);
+    return dedupeSchemaFields(fields);
+  }
+
+  function mergeSchemaFields(fields) {
+    var current = state.jbSchema.fields || [];
+    var merged = dedupeSchemaFields(current.concat(fields || []));
+
+    state.jbSchema.fields = merged;
+    state.jbSchema.journeyData = merged.filter(function (field) { return field.source !== 'contactData'; });
+    state.jbSchema.contactData = merged.filter(function (field) { return field.source === 'contactData'; });
+    state.jbSchema.loaded = true;
+    state.jbSchema.loading = false;
+    state.jbSchema.error = '';
+
+    render();
+  }
+
+  function consumeSchemaPayload(payload, sourceHint) {
+    if (Array.isArray(payload) && payload.length === 1 && typeof payload[0] === 'object') {
+      payload = payload[0];
+    }
+
+    var fields = collectSchemaFields(payload, sourceHint);
+
+    if (fields.length) {
+      mergeSchemaFields(fields);
+      return;
+    }
+
+    state.jbSchema.loaded = true;
+    state.jbSchema.loading = false;
+    state.jbSchema.error = 'Journey Builder respondió, pero no se encontraron campos en el schema recibido. Puedes escribir la expresión manualmente.';
+    render();
+  }
+
+  function requestJourneyDataSchema(manual) {
+    state.jbSchema.requested = true;
+    state.jbSchema.loading = true;
+    state.jbSchema.error = '';
+    if (manual) render();
+
+    try {
+      connection.trigger('requestSchema');
+      connection.trigger('requestTriggerEventDefinition');
+    } catch (err) {
+      state.jbSchema.loading = false;
+      state.jbSchema.error = 'No se pudo solicitar el schema a Journey Builder: ' + (err.message || String(err));
+      render();
+      return;
+    }
+
+    window.setTimeout(function () {
+      if (state.jbSchema.loading && !(state.jbSchema.fields || []).length) {
+        state.jbSchema.loading = false;
+        state.jbSchema.loaded = true;
+        state.jbSchema.error = 'Journey Builder no devolvió schema. Puedes escribir la expresión manualmente.';
+        render();
+      }
+    }, 7000);
+  }
+
+  function getSchemaFieldsForType(type) {
+    if (type === 'contactData') return state.jbSchema.contactData || [];
+    if (type === 'journeyData') return state.jbSchema.journeyData || [];
+    return state.jbSchema.fields || [];
+  }
+
+  function isLikelyEmailField(field) {
+    var text = String((field && (field.label + ' ' + field.expression + ' ' + field.type)) || '').toLowerCase();
+    return text.indexOf('email') >= 0 || text.indexOf('e-mail') >= 0 || text.indexOf('mail') >= 0;
+  }
+
+  function renderSchemaSelectOptions(currentValue, type) {
+    var current = String(currentValue || '');
+    var fields = getSchemaFieldsForType(type);
+
+    if (!fields.length) {
+      return '<option value="">Pulsa “Cargar campos del Journey” o escribe manualmente abajo</option>';
+    }
+
+    var html = ['<option value="">Seleccionar campo...</option>'];
+
+    fields.forEach(function (field) {
+      var value = field.expression;
+      var selected = value === current ? ' selected' : '';
+      html.push(
+        '<option value="', attr(value), '"', selected, '>',
+        escapeHtml(field.label || value),
+        ' · ',
+        escapeHtml(value),
+        '</option>'
+      );
+    });
+
+    return html.join('');
+  }
+
+  function renderSchemaTools() {
+    var fields = state.jbSchema.fields || [];
+    var journeyCount = (state.jbSchema.journeyData || []).length;
+    var contactCount = (state.jbSchema.contactData || []).length;
+    var emailFields = fields.filter(isLikelyEmailField);
+
+    return [
+      '<div class="slds-box slds-theme_shade slds-m-bottom_medium">',
+      '<div class="slds-grid slds-gutters slds-wrap slds-grid_vertical-align-end">',
+      '<div class="slds-col slds-size_1-of-1 slds-large-size_2-of-3">',
+      '<p class="slds-text-title_bold">Campos disponibles del Journey</p>',
+      '<p class="slds-text-body_small slds-text-color_weak">',
+      fields.length
+        ? 'Campos cargados: ' + fields.length + ' · Journey Data: ' + journeyCount + ' · Contact Data: ' + contactCount
+        : 'Carga el schema para seleccionar campos desde un desplegable en lugar de escribir expresiones manualmente.',
+      '</p>',
+      state.jbSchema.error ? '<p class="slds-text-color_error slds-m-top_x-small">' + escapeHtml(state.jbSchema.error) + '</p>' : '',
+      '</div>',
+      '<div class="slds-col slds-size_1-of-1 slds-large-size_1-of-3 slds-text-align_right">',
+      '<button type="button" class="slds-button slds-button_neutral" id="load-schema-fields">',
+      state.jbSchema.loading ? 'Cargando campos...' : (fields.length ? 'Recargar campos' : 'Cargar campos del Journey'),
+      '</button>',
+      '</div>',
+      '</div>',
+      fields.length ? [
+        '<div class="slds-grid slds-gutters slds-wrap slds-m-top_medium">',
+        '<div class="slds-col slds-size_1-of-1 slds-large-size_1-of-2">',
+        '<label class="slds-form-element__label" for="recipient-field-select">Campo email destinatario sugerido</label>',
+        '<select id="recipient-field-select" class="slds-select">',
+        '<option value="">No cambiar</option>',
+        (emailFields.length ? emailFields : fields).map(function (field) {
+          return '<option value="' + attr(field.expression) + '">' + escapeHtml(field.label || field.expression) + ' · ' + escapeHtml(field.expression) + '</option>';
+        }).join(''),
+        '</select>',
+        '</div>',
+        '</div>'
+      ].join('') : '',
+      '</div>'
+    ].join('');
+  }
+
 
   function showNotice(message, variant) {
     state.notices = [{ message: message, variant: variant || 'info' }];
@@ -266,6 +597,12 @@
 
     render();
     updateJourneyButtons();
+
+    if (!state.jbSchema.requested && window.self !== window.top) {
+      window.setTimeout(function () {
+        requestJourneyDataSchema(false);
+      }, 400);
+    }
   }
 
   function detectVariablesClient(text) {
@@ -398,11 +735,15 @@
       var pathEl = $('[data-var-path="' + safe + '"]');
       var sampleEl = $('[data-var-sample="' + safe + '"]');
       var requiredEl = $('[data-var-required="' + safe + '"]');
+      var fieldSelectEl = $('[data-var-field-select="' + safe + '"]');
 
       var mapping = state.config.variableMappings[variable] || {};
       mapping.type = typeEl ? typeEl.value : mapping.type || 'fixed';
       mapping.value = valueEl ? valueEl.value : mapping.value || '';
-      mapping.path = pathEl ? pathEl.value : mapping.path || '';
+
+      var selectedSchemaField = fieldSelectEl ? fieldSelectEl.value : '';
+      mapping.path = selectedSchemaField || (pathEl ? pathEl.value : mapping.path || '');
+
       mapping.sampleValue = sampleEl ? sampleEl.value : mapping.sampleValue || '';
       mapping.required = requiredEl ? requiredEl.checked : mapping.required !== false;
 
@@ -819,7 +1160,8 @@
       '</div>',
       '<div class="slds-m-top_large">',
       '<h3 class="slds-text-heading_small slds-m-bottom_small">Variables dinámicas</h3>',
-      '<p class="slds-text-body_small slds-text-color_weak slds-m-bottom_small">Para Journey/Contact Data escribe la expresión completa o el path sin llaves. Ej.: {{Event.FirstName}} o Contact.Attribute.Perfil.Nombre.</p>',
+      '<p class="slds-text-body_small slds-text-color_weak slds-m-bottom_small">Puedes mapear cada {{variable}} a un valor fijo, Journey Data o Contact Data. El desplegable se alimenta del schema que Journey Builder expone por Postmonger; si algún campo no aparece, puedes escribir la expresión manualmente.</p>',
+      renderSchemaTools(),
       renderMappingsTable(),
       '</div>',
       renderWarnings(),
@@ -845,7 +1187,7 @@
 
     return [
       '<table class="slds-table slds-table_cell-buffer slds-table_bordered mapping-table">',
-      '<thead><tr><th>Variable</th><th>Obligatoria</th><th>Origen</th><th>Valor fijo</th><th>Journey/Contact Data</th><th>Valor test/preview</th></tr></thead>',
+      '<thead><tr><th>Variable</th><th>Obligatoria</th><th>Origen</th><th>Valor fijo</th><th>Campo Journey/Contact Data</th><th>Valor test/preview</th></tr></thead>',
       '<tbody>',
       state.variables.map(function (variable) {
         var mapping = state.config.variableMappings[variable] || {};
@@ -862,7 +1204,12 @@
           '</select>',
           '</td>',
           '<td><input class="slds-input" data-var-value="', safe, '" value="', attr(mapping.value || ''), '" placeholder="Valor fijo"></td>',
-          '<td><input class="slds-input" data-var-path="', safe, '" value="', attr(mapping.path || ''), '" placeholder="{{Event.Campo}}"></td>',
+          '<td>',
+          '<select class="slds-select slds-m-bottom_x-small" data-var-field-select="', safe, '">',
+          renderSchemaSelectOptions(mapping.path || '', mapping.type),
+          '</select>',
+          '<input class="slds-input" data-var-path="', safe, '" value="', attr(mapping.path || ''), '" placeholder="{{Event.Campo}} o {{Contact.Attribute.Grupo.Campo}}">',
+          '</td>',
           '<td><input class="slds-input" data-var-sample="', safe, '" value="', attr(mapping.sampleValue || ''), '" placeholder="Solo preview/test"></td>',
           '</tr>'
         ].join('');
@@ -1053,6 +1400,41 @@
       });
     });
 
+    var schemaButton = $('#load-schema-fields');
+    if (schemaButton) schemaButton.addEventListener('click', function () {
+      readConfigFromForm();
+      requestJourneyDataSchema(true);
+    });
+
+    var recipientFieldSelect = $('#recipient-field-select');
+    if (recipientFieldSelect) {
+      recipientFieldSelect.addEventListener('change', function () {
+        if (!recipientFieldSelect.value) return;
+        var recipientInput = $('#recipientExpression');
+        if (recipientInput) recipientInput.value = recipientFieldSelect.value;
+        readConfigFromForm();
+        state.preview = null;
+      });
+    }
+
+    $all('[data-var-field-select]').forEach(function (selectEl) {
+      selectEl.addEventListener('change', function () {
+        var safe = selectEl.getAttribute('data-var-field-select');
+        var input = $('[data-var-path="' + safe + '"]');
+        if (input && selectEl.value) input.value = selectEl.value;
+        readConfigFromForm();
+        state.preview = null;
+      });
+    });
+
+    $all('[data-var-type]').forEach(function (typeEl) {
+      typeEl.addEventListener('change', function () {
+        readConfigFromForm();
+        state.preview = null;
+        render();
+      });
+    });
+
     var previewButton = $('#generate-preview');
     if (previewButton) previewButton.addEventListener('click', generatePreview);
 
@@ -1103,6 +1485,14 @@
 
   connection.on('requestedEndpoints', function (endpoints) {
     state.endpoints = endpoints || null;
+  });
+
+  connection.on('requestedSchema', function (schema) {
+    consumeSchemaPayload(schema, 'journeyData');
+  });
+
+  connection.on('requestedTriggerEventDefinition', function (definition) {
+    consumeSchemaPayload(definition, 'journeyData');
   });
 
   connection.on('clickedNext', onClickedNext);
@@ -1161,7 +1551,7 @@
 
     if (!hasReceivedInitActivity) {
       state.notices = [{
-        message: 'Journey Builder todavía no ha enviado initActivity. Esta versión usa Postmonger oficial. Revisa que el Installed Package apunte a /config.json?v=preview-v13 y que SFMC esté cargando /index.html?v=preview-v13.',
+        message: 'Journey Builder todavía no ha enviado initActivity. Esta versión usa Postmonger oficial. Revisa que el Installed Package apunte a /config.json?v=schema-dropdown-v16 y que SFMC esté cargando /index.html?v=schema-dropdown-v16.',
         variant: 'warning'
       }];
       render();
