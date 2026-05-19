@@ -3,17 +3,108 @@ const { AppError } = require('../middleware/errorHandler');
 const { renderEmailTemplate, hasBlockingUnresolved } = require('../services/templateRenderService');
 const { buildRelayPayload, postToRelay, isEmail } = require('../services/relayService');
 const { getAssetDetail } = require('../services/contentBuilderService');
+const {
+  putPreview,
+  getPreview,
+  ensurePreviewDocument,
+  htmlDiagnostics
+} = require('../services/previewStoreService');
 
 const router = express.Router();
+
+function buildPreviewUrls(req, previewId) {
+  const basePath = `/api/preview-frame/${encodeURIComponent(previewId)}`;
+  return {
+    desktop: `${basePath}?device=desktop`,
+    mobile: `${basePath}?device=mobile`,
+    open: `${basePath}?device=desktop&open=1`,
+    raw: `/api/preview-frame/${encodeURIComponent(previewId)}/raw`
+  };
+}
 
 router.post('/preview', async (req, res, next) => {
   try {
     const result = renderEmailTemplate(req.body || {}, { useSamples: true });
+    const diagnostics = htmlDiagnostics(result.html);
+    const previewId = putPreview({
+      ...result,
+      diagnostics
+    });
 
     res.json({
       success: true,
-      ...result
+      ...result,
+      previewId,
+      previewUrls: buildPreviewUrls(req, previewId),
+      diagnostics
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/preview-frame/:id', async (req, res, next) => {
+  try {
+    const item = getPreview(req.params.id);
+
+    if (!item) {
+      throw new AppError(
+        'Preview caducado o no encontrado. Pulsa “Renderizar preview” de nuevo.',
+        404,
+        undefined,
+        'PREVIEW_NOT_FOUND'
+      );
+    }
+
+    const device = String(req.query.device || 'desktop').toLowerCase() === 'mobile'
+      ? 'mobile'
+      : 'desktop';
+
+    const html = ensurePreviewDocument(item.html, { mode: device });
+
+    // Cabeceras específicas para el documento del email. Debe poder cargarse dentro
+    // del iframe del modal de Journey Builder y también debe poder cargar imágenes externas.
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    res.setHeader(
+      'Content-Security-Policy',
+      [
+        "default-src 'self' https: data: blob:",
+        "script-src 'none'",
+        "style-src 'self' 'unsafe-inline' https:",
+        "img-src 'self' https: data: blob:",
+        "font-src 'self' https: data:",
+        "connect-src 'none'",
+        "frame-ancestors 'self' https://*.exacttarget.com https://*.marketingcloudapps.com https://*.salesforce.com https://*.force.com https://*.salesforce-setup.com https://*.lightning.force.com",
+        "object-src 'none'",
+        "base-uri 'self'"
+      ].join('; ')
+    );
+
+    res.status(200).send(html);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/preview-frame/:id/raw', async (req, res, next) => {
+  try {
+    const item = getPreview(req.params.id);
+
+    if (!item) {
+      throw new AppError(
+        'Preview caducado o no encontrado. Pulsa “Renderizar preview” de nuevo.',
+        404,
+        undefined,
+        'PREVIEW_NOT_FOUND'
+      );
+    }
+
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
+    res.status(200).send(item.html || '');
   } catch (err) {
     next(err);
   }
