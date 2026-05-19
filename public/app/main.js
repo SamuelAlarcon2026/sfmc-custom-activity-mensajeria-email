@@ -187,6 +187,9 @@
   }
 
   function hydrateFromActivity(activity) {
+    // Some Postmonger wrappers pass [activity] instead of activity.
+    if (Array.isArray(activity)) activity = activity[0];
+
     state.activity = activity || state.activity || {};
 
     var existing = extractInArgumentConfig(state.activity);
@@ -1052,26 +1055,42 @@
   });
 
   /*
-   * Handshake mínimo y estable:
-   * 1. Registramos listeners.
-   * 2. Pintamos UI.
-   * 3. Enviamos ready una vez en el siguiente tick.
-   * No hacemos requestTokens, requestEndpoints ni updateButton durante la carga.
+   * Handshake Journey Builder:
+   * Enviamos "ready" en ráfagas cortas hasta recibir initActivity.
+   * No pedimos requestTokens/requestEndpoints y no llamamos updateButton al cargar.
+   *
+   * La razón: algunos shells de Journey Builder no están listos para escuchar en
+   * el primer tick del iframe. Si ready se pierde, el overlay gris se queda encima.
    */
-  window.setTimeout(function () {
-    if (DEBUG_POSTMONGER && window.console) console.log('[JB] trigger ready');
+  var readyAttempts = 0;
+  var maxReadyAttempts = 24;
+
+  function sendReadyUntilInitActivity() {
+    if (hasReceivedInitActivity) return;
+
+    readyAttempts += 1;
+
+    if (DEBUG_POSTMONGER && window.console) {
+      console.log('[JB] trigger ready intento', readyAttempts);
+    }
+
     connection.trigger('ready');
 
-    window.setTimeout(function () {
-      if (!hasReceivedInitActivity) {
-        state.notices = [{
-          message: 'El iframe está cargado, pero Journey Builder aún no ha enviado initActivity. Si el overlay gris sigue visible, SFMC está usando caché antiguo o no está recibiendo el evento ready.',
-          variant: 'warning'
-        }];
-        render();
-      }
-    }, 8000);
-  }, 50);
+    if (!hasReceivedInitActivity && readyAttempts < maxReadyAttempts) {
+      window.setTimeout(sendReadyUntilInitActivity, 500);
+      return;
+    }
+
+    if (!hasReceivedInitActivity) {
+      state.notices = [{
+        message: 'Journey Builder todavía no ha enviado initActivity. Revisa que el endpoint del Installed Package apunte a /config.json?v=postmonger-v10 y que SFMC esté cargando /index.html?v=postmonger-v10.',
+        variant: 'warning'
+      }];
+      render();
+    }
+  }
+
+  window.setTimeout(sendReadyUntilInitActivity, 300);
 
   // Standalone developer convenience.
   if (window.self === window.top) {

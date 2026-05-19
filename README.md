@@ -277,3 +277,8 @@ http://localhost:3000/config.json
 ```
 
 Para probar Journey Builder necesitas HTTPS público. Render cumple este requisito.
+
+## Hotfix postmonger-v10
+
+El modal de Journey Builder usa `/index.html?v=postmonger-v10` y Postmonger local compatible en `/vendor/postmonger-local.js?v=postmonger-v10`.
+

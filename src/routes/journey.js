@@ -77,7 +77,7 @@ function buildConfigJson() {
     },
     userInterfaces: {
       configModal: {
-        url: `${base}/index.html?v=no-spinner-v9`,
+        url: `${base}/index.html?v=postmonger-v10`,
         height: 720,
         width: 980,
         fullscreen: false
