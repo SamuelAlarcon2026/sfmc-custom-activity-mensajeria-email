@@ -77,7 +77,7 @@ function buildConfigJson() {
     },
     userInterfaces: {
       configModal: {
-        url: `${base}/index.html?v=official-local-v1`,
+        url: `${base}/index.html?v=no-spinner-v6`,
         height: 720,
         width: 980,
         fullscreen: false

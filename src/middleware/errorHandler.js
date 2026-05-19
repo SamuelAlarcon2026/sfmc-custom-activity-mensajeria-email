@@ -18,10 +18,19 @@ function safeErrorDetails(details) {
     const clone = {};
     for (const [key, value] of Object.entries(details)) {
       const lowered = key.toLowerCase();
-      if (lowered.includes('secret') || lowered.includes('token') || lowered.includes('apikey') || lowered.includes('api_key')) {
+
+      if (
+        lowered.includes('secret') ||
+        lowered.includes('token') ||
+        lowered.includes('apikey') ||
+        lowered.includes('api_key') ||
+        lowered.includes('authorization')
+      ) {
         clone[key] = '[redacted]';
       } else if (typeof value === 'string' && value.length > 1000) {
         clone[key] = `${value.slice(0, 1000)}…`;
+      } else if (value && typeof value === 'object') {
+        clone[key] = safeErrorDetails(value);
       } else {
         clone[key] = value;
       }
@@ -39,18 +48,19 @@ function notFoundHandler(req, _res, next) {
 function errorHandler(err, req, res, _next) {
   const statusCode = err.statusCode && Number.isInteger(err.statusCode) ? err.statusCode : 500;
   const isServerError = statusCode >= 500;
+  const isAppError = err instanceof AppError || err.name === 'AppError';
 
   const payload = {
     success: false,
     error: {
       code: err.code || (isServerError ? 'INTERNAL_ERROR' : 'REQUEST_ERROR'),
-      message: isServerError ? 'Error interno del servidor.' : err.message,
+      message: isServerError && !isAppError ? 'Error interno del servidor.' : err.message,
       correlationId: req.correlationId
     }
   };
 
   const details = safeErrorDetails(err.details);
-  if (details && !isServerError) {
+  if (details) {
     payload.error.details = details;
   }
 

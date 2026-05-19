@@ -1,6 +1,10 @@
 (function () {
   'use strict';
 
+  var ENABLE_JB_BUTTON_UPDATES = false; // Evita que Journey Builder reactive el overlay gris del modal.
+  var DEBUG_POSTMONGER = true;
+
+
   var STEPS = [
     { id: 1, label: 'Plantilla' },
     { id: 2, label: 'Envío' },
@@ -28,6 +32,11 @@
     warnings: []
   };
 
+  if (!window.Postmonger || !window.Postmonger.Session) {
+    document.getElementById('app').innerHTML = '<div class="slds-notify slds-notify_alert slds-theme_error slds-m-around_medium" role="alert">No se ha podido cargar Postmonger local. Revisa /vendor/postmonger-local.js.</div>';
+    return;
+  }
+
   var connection = new Postmonger.Session();
   var state = {
     activity: null,
@@ -43,6 +52,7 @@
     testResult: null,
     errors: [],
     notices: [],
+    postmongerInitialized: false,
     config: clone(DEFAULT_CONFIG)
   };
 
@@ -91,6 +101,22 @@
     render();
   }
 
+  function normalizeErrorDetails(details) {
+    if (!details) return [];
+    if (Array.isArray(details)) {
+      return details.map(function (item) {
+        return typeof item === 'string' ? item : JSON.stringify(item);
+      });
+    }
+    if (typeof details === 'string') return [details];
+
+    try {
+      return [JSON.stringify(details)];
+    } catch (_err) {
+      return [String(details)];
+    }
+  }
+
   function setErrors(errors) {
     state.errors = Array.isArray(errors) ? errors : [String(errors || 'Error desconocido')];
     render();
@@ -124,7 +150,7 @@
         var details = body.error && body.error.details ? body.error.details : [];
         var message = body.error && body.error.message ? body.error.message : 'Error HTTP ' + response.status;
         var error = new Error(message);
-        error.details = details;
+        error.details = normalizeErrorDetails(details);
         error.body = body;
         throw error;
       }
@@ -506,6 +532,15 @@
   }
 
   function updateJourneyButtons() {
+    /*
+     * Hotfix no-spinner-v6:
+     * No usamos la API updateButton de Journey Builder durante la carga.
+     * En algunos tenants, llamar updateButton antes/después de initActivity reactiva
+     * el overlay gris del modal. La UI ya tiene botones locales Atrás/Siguiente
+     * y el botón Done nativo sigue siendo capturado por clickedNext.
+     */
+    if (!ENABLE_JB_BUTTON_UPDATES) return;
+
     try {
       connection.trigger('updateButton', {
         button: 'back',
@@ -678,7 +713,7 @@
           '<tr>',
           '<td><strong>', escapeHtml(asset.name || ''), '</strong><div class="slds-text-color_weak">ID ', escapeHtml(asset.id || ''), '</div></td>',
           '<td>', escapeHtml(asset.customerKey || ''), '</td>',
-          '<td>', escapeHtml(asset.assetType || ''), '</td>',
+          '<td>', escapeHtml(asset.assetTypeName || asset.assetType || ''), '</td>',
           '<td>', escapeHtml(asset.modifiedDate || ''), '</td>',
           '<td><button type="button" class="slds-button slds-button_neutral" data-select-asset="', attr(asset.id), '">Seleccionar</button></td>',
           '</tr>'
@@ -961,15 +996,16 @@
 
   connection.on('initActivity', function (activity) {
     hasReceivedInitActivity = true;
-    hydrateFromActivity(activity);
+    state.postmongerInitialized = true;
+    if (DEBUG_POSTMONGER && window.console) console.log('[JB] initActivity recibido');
 
     /*
-     * Pedimos tokens/endpoints después de initActivity. Hacerlo antes o repetir
-     * "ready" puede provocar que Journey Builder reactive su overlay de carga.
+     * IMPORTANTE:
+     * No pedimos requestTokens ni requestEndpoints. Esta Custom Activity usa
+     * Server-to-Server OAuth en backend, así que no necesita tokens del iframe.
+     * Pedirlos puede dejar algunos tenants con el spinner gris reactivado.
      */
-    connection.trigger('requestTokens');
-    connection.trigger('requestEndpoints');
-    updateJourneyButtons();
+    hydrateFromActivity(activity);
   });
 
   connection.on('requestedTokens', function (tokens) {
@@ -1002,26 +1038,32 @@
 
   render();
 
+  window.addEventListener('error', function (event) {
+    state.errors = ['Error JavaScript en el modal: ' + (event.message || 'sin detalle')];
+    render();
+  });
+
   /*
-   * IMPORTANTE:
-   * Journey Builder quita el spinner gris cuando recibe exactamente el evento
-   * Postmonger "ready". No repetimos ready y no usamos un wrapper casero:
-   * cargamos Postmonger oficial desde /vendor/postmonger.js.
+   * Handshake mínimo y estable:
+   * 1. Registramos listeners.
+   * 2. Pintamos UI.
+   * 3. Enviamos ready una vez en el siguiente tick.
+   * No hacemos requestTokens, requestEndpoints ni updateButton durante la carga.
    */
   window.setTimeout(function () {
+    if (DEBUG_POSTMONGER && window.console) console.log('[JB] trigger ready');
     connection.trigger('ready');
-    updateJourneyButtons();
 
     window.setTimeout(function () {
       if (!hasReceivedInitActivity) {
         state.notices = [{
-          message: 'Journey Builder cargó el iframe, pero todavía no respondió con initActivity. Si ves el spinner gris, revisa que se esté cargando /vendor/postmonger.js y que no haya cache antiguo del config.json.',
+          message: 'El iframe está cargado, pero Journey Builder aún no ha enviado initActivity. Si el overlay gris sigue visible, SFMC está usando caché antiguo o no está recibiendo el evento ready.',
           variant: 'warning'
         }];
         render();
       }
-    }, 6000);
-  }, 0);
+    }, 8000);
+  }, 50);
 
   // Standalone developer convenience.
   if (window.self === window.top) {
