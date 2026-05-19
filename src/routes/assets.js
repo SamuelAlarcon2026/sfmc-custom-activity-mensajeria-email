@@ -1,5 +1,5 @@
 const express = require('express');
-const { listAssets, getAssetDetail } = require('../services/contentBuilderService');
+const { listAssets, getAssetDetail, getAssetDebug } = require('../services/contentBuilderService');
 const { getAccessToken, getSfmcBaseUrl } = require('../services/sfmcTokenService');
 
 const router = express.Router();
@@ -41,6 +41,18 @@ router.get('/assets', async (req, res, next) => {
     res.json({
       success: true,
       ...result
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/assets/:id/debug', async (req, res, next) => {
+  try {
+    const detail = await getAssetDebug(req.params.id);
+    res.json({
+      success: true,
+      debug: detail
     });
   } catch (err) {
     next(err);

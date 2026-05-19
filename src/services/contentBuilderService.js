@@ -330,8 +330,8 @@ async function listAssets(params = {}) {
   }
 }
 
-function collectSlotContent(node, warnings, depth = 0) {
-  if (!node || depth > 10) return [];
+function collectSlotContent(node, warnings, depth = 0, seen = new Set()) {
+  if (!node || depth > 16) return [];
 
   const pieces = [];
 
@@ -342,20 +342,28 @@ function collectSlotContent(node, warnings, depth = 0) {
 
   if (Array.isArray(node)) {
     for (const child of node) {
-      pieces.push(...collectSlotContent(child, warnings, depth + 1));
+      pieces.push(...collectSlotContent(child, warnings, depth + 1, seen));
     }
     return pieces;
   }
 
   if (typeof node !== 'object') return pieces;
+  if (seen.has(node)) return pieces;
+  seen.add(node);
 
   const possibleContent = [
     node.content,
     node.html,
+    node.innerHTML,
+    node.markup,
     node.body,
     node.value,
+    node.text,
     node.asset?.views?.html?.content,
+    node.asset?.views?.html?.html,
+    node.asset?.content,
     node.block?.content,
+    node.block?.html,
     node.block?.views?.html?.content
   ];
 
@@ -369,15 +377,49 @@ function collectSlotContent(node, warnings, depth = 0) {
     node.slots,
     node.contentBlocks,
     node.items,
+    node.children,
+    node.views?.html?.slots,
     node.asset?.views?.html?.slots,
     node.block?.slots
   ];
 
   for (const child of children) {
-    if (child) pieces.push(...collectSlotContent(child, warnings, depth + 1));
+    if (child) pieces.push(...collectSlotContent(child, warnings, depth + 1, seen));
   }
 
-  if ((node.contentBlockId || node.blockId || node.assetId) && pieces.length === 0) {
+  // En Asset API muchos slots/bloques vienen como mapas:
+  // { "slot_1": {...}, "block_abc": {...} } y no como arrays.
+  for (const [key, value] of Object.entries(node)) {
+    if (/^(thumbnail|fileProperties|created|modified|customerKey|name|category|assetType|meta|design)$/i.test(key)) {
+      continue;
+    }
+
+    if ([
+      'content',
+      'html',
+      'innerHTML',
+      'markup',
+      'body',
+      'value',
+      'text',
+      'blocks',
+      'slots',
+      'contentBlocks',
+      'items',
+      'children',
+      'asset',
+      'block',
+      'views'
+    ].includes(key)) {
+      continue;
+    }
+
+    if (value && typeof value === 'object') {
+      pieces.push(...collectSlotContent(value, warnings, depth + 1, seen));
+    }
+  }
+
+  if ((node.contentBlockId || node.blockId || node.assetId || node.id) && pieces.length === 0) {
     warnings.push('El asset contiene referencias a bloques de contenido que podrían no estar embebidas en la respuesta de Asset API.');
   }
 
@@ -391,17 +433,53 @@ function looksLikeRenderableHtml(value) {
   return /<!doctype|<html[\s>]|<body[\s>]|<table[\s>]|<div[\s>]|<mjml[\s>]|<p[\s>]|<img[\s>]/i.test(text);
 }
 
+function visibleTextLength(value) {
+  return String(value || '')
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<xml\b[^>]*>[\s\S]*?<\/xml>/gi, ' ')
+    .replace(/<head\b[^>]*>[\s\S]*?<\/head>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&#\d+;/g, ' ')
+    .replace(/&[a-z]+;/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .length;
+}
+
+function imgCount(value) {
+  return (String(value || '').match(/<img\b/gi) || []).length;
+}
+
+function tableCount(value) {
+  return (String(value || '').match(/<table\b/gi) || []).length;
+}
+
 function htmlScore(value) {
   const text = String(value || '');
+  const visibleLength = visibleTextLength(text);
   let score = text.length;
 
-  if (/<!doctype/i.test(text)) score += 1000000;
-  if (/<html[\s>]/i.test(text)) score += 750000;
-  if (/<body[\s>]/i.test(text)) score += 500000;
-  if (/<table[\s>]/i.test(text)) score += 150000;
-  if (/<img[\s>]/i.test(text)) score += 50000;
+  // El score debe priorizar contenido visible, no solo maquetación.
+  // Un shell de Content Builder puede tener muchas tablas y 0 texto visible.
+  score += visibleLength * 5000;
+  score += imgCount(text) * 75000;
+  score += tableCount(text) * 5000;
+
+  if (/<!doctype/i.test(text)) score += 100000;
+  if (/<html[\s>]/i.test(text)) score += 75000;
+  if (/<body[\s>]/i.test(text)) score += 50000;
   if (/%%\[|%%=|%%[A-Za-z0-9_.-]+%%/.test(text)) score += 1000;
   if (/^\s*{/.test(text)) score -= 1000000;
+
+  if (visibleLength === 0 && imgCount(text) === 0) {
+    score -= 2000000;
+  }
 
   return score;
 }
@@ -462,31 +540,58 @@ function pickBestHtmlCandidate(candidates) {
   return unique[0] || '';
 }
 
+function uniqueNonEmptyStrings(values) {
+  return Array.from(new Set((values || [])
+    .map((value) => String(value || '').trim())
+    .filter(Boolean)));
+}
+
+function buildHtmlFromPieces(pieces) {
+  const body = uniqueNonEmptyStrings(pieces)
+    .filter((piece) => visibleTextLength(piece) > 0 || imgCount(piece) > 0 || /<table\b|<div\b|<p\b|<span\b/i.test(piece))
+    .join('\n');
+
+  if (!body) return '';
+
+  if (/<html[\s>]/i.test(body)) return body;
+
+  return [
+    '<!doctype html>',
+    '<html>',
+    '<head>',
+    '<meta charset="utf-8">',
+    '<meta name="viewport" content="width=device-width, initial-scale=1">',
+    '</head>',
+    '<body style="margin:0;padding:0;background:#ffffff;">',
+    body,
+    '</body>',
+    '</html>'
+  ].join('');
+}
+
 function extractHtml(asset, warnings) {
-  const directCandidates = [
-    firstString(asset, [
-      'views.html.content',
-      'views.html.html',
-      'views.html.innerHTML',
-      'views.email.html',
-      'data.email.html',
-      'data.html',
-      'html',
-      'content'
-    ]),
-    pickBestHtmlCandidate(collectHtmlCandidatesDeep(asset))
-  ].filter(Boolean);
-
-  const html = pickBestHtmlCandidate(directCandidates);
-
-  if (html) return html;
+  const directCandidate = firstString(asset, [
+    'views.html.content',
+    'views.html.html',
+    'views.html.innerHTML',
+    'views.email.html',
+    'data.email.html',
+    'data.html',
+    'html',
+    'content'
+  ]);
 
   const slotSources = [
     asset.views?.html?.slots,
     asset.views?.template?.slots,
+    asset.views?.html?.blocks,
+    asset.views?.template?.blocks,
     asset.slots,
+    asset.blocks,
     asset.content?.slots,
-    asset.data?.slots
+    asset.content?.blocks,
+    asset.data?.slots,
+    asset.data?.blocks
   ];
 
   const slotContent = [];
@@ -494,9 +599,42 @@ function extractHtml(asset, warnings) {
     if (source) slotContent.push(...collectSlotContent(source, warnings));
   }
 
-  if (slotContent.length) {
-    warnings.push('El HTML se reconstruyó desde slots/bloques. Revisa el preview porque algunos bloques dinámicos pueden no renderizarse fuera de SFMC.');
-    return slotContent.join('\n');
+  const deepCandidates = collectHtmlCandidatesDeep(asset);
+  const allCandidates = uniqueNonEmptyStrings([
+    directCandidate,
+    ...slotContent,
+    ...deepCandidates
+  ]);
+
+  const bestCandidate = pickBestHtmlCandidate(allCandidates);
+  const directVisible = visibleTextLength(directCandidate);
+  const bestVisible = visibleTextLength(bestCandidate);
+  const slotHtml = buildHtmlFromPieces(slotContent);
+  const slotVisible = visibleTextLength(slotHtml);
+
+  // Muchos emails de Content Builder devuelven en views.html.content solo
+  // la maqueta/shell de tablas, mientras el contenido real vive en slots.blocks.
+  // Si el shell no tiene texto ni imágenes, preferimos los bloques/slots.
+  if (slotHtml && slotVisible > 0 && directCandidate && directVisible === 0 && imgCount(directCandidate) === 0) {
+    warnings.push('El HTML directo del asset parecía ser solo la maqueta vacía de Content Builder; se reconstruyó el preview desde slots/bloques.');
+    return slotHtml;
+  }
+
+  if (bestCandidate && bestVisible > 0) {
+    if (directCandidate && bestCandidate !== directCandidate && directVisible === 0) {
+      warnings.push('Se seleccionó una variante HTML interna con contenido visible porque el HTML principal del asset estaba vacío visualmente.');
+    }
+    return bestCandidate;
+  }
+
+  if (slotHtml) {
+    warnings.push('El HTML se reconstruyó desde slots/bloques, pero no se detectó texto visible. El asset podría contener bloques remotos, dinámicos o no embebidos en Asset API.');
+    return slotHtml;
+  }
+
+  if (bestCandidate) {
+    warnings.push('El asset devolvió HTML estructural, pero no se detectó texto visible ni imágenes. Puede ser una plantilla vacía o un email basado en bloques no embebidos.');
+    return bestCandidate;
   }
 
   return '';
@@ -723,8 +861,93 @@ async function getAssetDetail(id) {
   }
 }
 
+
+function collectContentPathDiagnostics(node, path = '$', output = [], seen = new Set(), depth = 0) {
+  if (node === null || node === undefined || depth > 12 || output.length > 200) return output;
+
+  if (typeof node === 'string') {
+    const value = node.trim();
+    if (value.length >= 20) {
+      output.push({
+        path,
+        length: value.length,
+        visibleTextLength: visibleTextLength(value),
+        imgCount: imgCount(value),
+        tableCount: tableCount(value),
+        htmlish: looksLikeRenderableHtml(value),
+        startsWith: value.slice(0, 180)
+      });
+    }
+    return output;
+  }
+
+  if (typeof node !== 'object') return output;
+  if (seen.has(node)) return output;
+  seen.add(node);
+
+  if (Array.isArray(node)) {
+    node.forEach((item, index) => collectContentPathDiagnostics(item, `${path}[${index}]`, output, seen, depth + 1));
+    return output;
+  }
+
+  for (const [key, value] of Object.entries(node)) {
+    if (/^(thumbnail|fileProperties)$/i.test(key)) continue;
+    collectContentPathDiagnostics(value, `${path}.${key}`, output, seen, depth + 1);
+  }
+
+  return output;
+}
+
+async function getAssetDebug(id) {
+  if (!id || !String(id).match(/^\d+$/)) {
+    throw new AppError('El id de asset debe ser numérico.', 400, undefined, 'INVALID_ASSET_ID');
+  }
+
+  let raw;
+  let source = 'detail';
+
+  try {
+    raw = await fetchAssetDetailById(id);
+  } catch (_err) {
+    raw = await queryAssetById(id);
+    source = 'query';
+  }
+
+  if (!raw) {
+    throw new AppError('Asset no encontrado en Content Builder.', 404, undefined, 'SFMC_ASSET_NOT_FOUND');
+  }
+
+  const detail = normalizeAssetDetail(raw, [`debug-source:${source}`]);
+  const contentPaths = collectContentPathDiagnostics(raw)
+    .sort((a, b) => {
+      if (b.visibleTextLength !== a.visibleTextLength) return b.visibleTextLength - a.visibleTextLength;
+      return b.length - a.length;
+    })
+    .slice(0, 80);
+
+  return {
+    id: raw.id,
+    name: raw.name,
+    customerKey: raw.customerKey,
+    assetType: assetTypeName(raw),
+    source,
+    normalized: {
+      subject: detail.subject,
+      preheader: detail.preheader,
+      htmlLength: detail.html.length,
+      visibleTextLength: visibleTextLength(detail.html),
+      imgCount: imgCount(detail.html),
+      tableCount: tableCount(detail.html),
+      warnings: detail.warnings
+    },
+    topContentPaths: contentPaths
+  };
+}
+
+
 module.exports = {
   listAssets,
   getAssetDetail,
+  getAssetDebug,
   mapAssetSummary
 };
