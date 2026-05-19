@@ -2,7 +2,7 @@
   'use strict';
 
   var ENABLE_JB_BUTTON_UPDATES = false; // Evita que Journey Builder reactive el overlay gris del modal.
-  var DEBUG_POSTMONGER = true;
+  var DEBUG_POSTMONGER = false;
 
 
   var STEPS = [
@@ -533,7 +533,7 @@
 
   function updateJourneyButtons() {
     /*
-     * Hotfix no-spinner-v6:
+     * Hotfix no-spinner-v9:
      * No usamos la API updateButton de Journey Builder durante la carga.
      * En algunos tenants, llamar updateButton antes/después de initActivity reactiva
      * el overlay gris del modal. La UI ya tiene botones locales Atrás/Siguiente
@@ -933,6 +933,14 @@
   }
 
   function bindEvents() {
+    var form = $('#activity-form');
+    if (form) {
+      form.addEventListener('submit', function (event) {
+        event.preventDefault();
+        return false;
+      });
+    }
+
     $all('[data-step]').forEach(function (el) {
       el.addEventListener('click', function (event) {
         event.preventDefault();
