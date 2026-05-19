@@ -60,17 +60,17 @@ function findFirstExistingFile(candidates) {
 
 app.get('/vendor/postmonger.js', (_req, res) => {
   const candidates = [
+    // Preferimos la copia oficial vendorizada para evitar cambios de CDN/npm.
+    path.join(__dirname, 'public', 'vendor', 'postmonger.js'),
     path.join(__dirname, 'node_modules', 'postmonger', 'postmonger.js'),
     path.join(__dirname, 'node_modules', 'postmonger', 'postmonger.min.js'),
-    path.join(__dirname, 'node_modules', 'postmonger', 'dist', 'postmonger.js'),
-    path.join(__dirname, 'node_modules', 'postmonger', 'dist', 'postmonger.min.js'),
     path.join(__dirname, 'public', 'vendor', 'postmonger-fallback.js')
   ];
 
   const filePath = findFirstExistingFile(candidates);
 
   if (!filePath) {
-    res.status(500).type('text/plain').send('Postmonger no está disponible. Revisa que la dependencia npm postmonger esté instalada.');
+    res.status(500).type('text/plain').send('Postmonger no está disponible.');
     return;
   }
 

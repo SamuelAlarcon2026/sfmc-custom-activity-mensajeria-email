@@ -1083,7 +1083,7 @@
 
     if (!hasReceivedInitActivity) {
       state.notices = [{
-        message: 'Journey Builder todavía no ha enviado initActivity. Revisa que el endpoint del Installed Package apunte a /config.json?v=postmonger-v10 y que SFMC esté cargando /index.html?v=postmonger-v10.',
+        message: 'Journey Builder todavía no ha enviado initActivity. Esta versión usa Postmonger oficial. Revisa que el Installed Package apunte a /config.json?v=postmonger-official-v11 y que SFMC esté cargando /index.html?v=postmonger-official-v11.',
         variant: 'warning'
       }];
       render();
