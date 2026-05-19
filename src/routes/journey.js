@@ -77,7 +77,7 @@ function buildConfigJson() {
     },
     userInterfaces: {
       configModal: {
-        url: `${base}/index.html?v=postmonger-official-v11`,
+        url: `${base}/index.html?v=preview-v12`,
         height: 720,
         width: 980,
         fullscreen: false

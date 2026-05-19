@@ -80,6 +80,8 @@ function securityMiddleware() {
         "img-src": ["'self'", "data:", "https:"],
         "font-src": ["'self'", "data:"],
         "connect-src": ["'self'"],
+        "frame-src": ["'self'", "about:", "blob:", "data:", "https:"],
+        "child-src": ["'self'", "about:", "blob:", "data:", "https:"],
         "frame-ancestors": [
           "'self'",
           "https://*.exacttarget.com",

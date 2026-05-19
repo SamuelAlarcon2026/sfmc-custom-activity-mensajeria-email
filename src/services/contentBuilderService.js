@@ -48,6 +48,8 @@ function valueToString(value) {
     const candidates = [
       value.content,
       value.html,
+      value.innerHTML,
+      value.markup,
       value.text,
       value.value,
       value.body,
@@ -382,16 +384,100 @@ function collectSlotContent(node, warnings, depth = 0) {
   return pieces;
 }
 
-function extractHtml(asset, warnings) {
-  const html = firstString(asset, [
-    'views.html.content',
-    'views.html',
-    'views.email.html',
-    'data.email.html',
-    'data.html',
+function looksLikeRenderableHtml(value) {
+  const text = String(value || '');
+  if (text.length < 20) return false;
+
+  return /<!doctype|<html[\s>]|<body[\s>]|<table[\s>]|<div[\s>]|<mjml[\s>]|<p[\s>]|<img[\s>]/i.test(text);
+}
+
+function htmlScore(value) {
+  const text = String(value || '');
+  let score = text.length;
+
+  if (/<!doctype/i.test(text)) score += 1000000;
+  if (/<html[\s>]/i.test(text)) score += 750000;
+  if (/<body[\s>]/i.test(text)) score += 500000;
+  if (/<table[\s>]/i.test(text)) score += 150000;
+  if (/<img[\s>]/i.test(text)) score += 50000;
+  if (/%%\[|%%=|%%[A-Za-z0-9_.-]+%%/.test(text)) score += 1000;
+  if (/^\s*{/.test(text)) score -= 1000000;
+
+  return score;
+}
+
+function collectHtmlCandidatesDeep(node, candidates = [], seen = new Set(), depth = 0) {
+  if (node === null || node === undefined || depth > 14) return candidates;
+
+  if (typeof node === 'string') {
+    if (looksLikeRenderableHtml(node)) candidates.push(node);
+    return candidates;
+  }
+
+  if (typeof node !== 'object') return candidates;
+
+  if (seen.has(node)) return candidates;
+  seen.add(node);
+
+  if (Array.isArray(node)) {
+    for (const child of node) {
+      collectHtmlCandidatesDeep(child, candidates, seen, depth + 1);
+    }
+    return candidates;
+  }
+
+  // Primero los campos más probables para que, en caso de empate, ganen.
+  const priorityKeys = [
+    'content',
     'html',
-    'content'
-  ]);
+    'innerHTML',
+    'markup',
+    'body',
+    'value'
+  ];
+
+  for (const key of priorityKeys) {
+    if (Object.prototype.hasOwnProperty.call(node, key)) {
+      collectHtmlCandidatesDeep(node[key], candidates, seen, depth + 1);
+    }
+  }
+
+  for (const [key, value] of Object.entries(node)) {
+    if (priorityKeys.includes(key)) continue;
+
+    // Evita recorrer metadatos gigantes que no aportan HTML renderizable.
+    if (/^(thumbnail|fileProperties|created|modified|customerKey|name|category|assetType)$/i.test(key)) continue;
+
+    collectHtmlCandidatesDeep(value, candidates, seen, depth + 1);
+  }
+
+  return candidates;
+}
+
+function pickBestHtmlCandidate(candidates) {
+  const unique = Array.from(new Set((candidates || []).filter(Boolean)));
+  if (!unique.length) return '';
+
+  unique.sort((a, b) => htmlScore(b) - htmlScore(a));
+  return unique[0] || '';
+}
+
+function extractHtml(asset, warnings) {
+  const directCandidates = [
+    firstString(asset, [
+      'views.html.content',
+      'views.html.html',
+      'views.html.innerHTML',
+      'views.email.html',
+      'data.email.html',
+      'data.html',
+      'html',
+      'content'
+    ]),
+    pickBestHtmlCandidate(collectHtmlCandidatesDeep(asset))
+  ].filter(Boolean);
+
+  const html = pickBestHtmlCandidate(directCandidates);
 
   if (html) return html;
 

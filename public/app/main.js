@@ -52,6 +52,7 @@
     testResult: null,
     errors: [],
     notices: [],
+    previewBlobUrls: [],
     postmongerInitialized: false,
     config: clone(DEFAULT_CONFIG)
   };
@@ -79,6 +80,66 @@
 
   function attr(value) {
     return escapeHtml(value).replace(/`/g, '&#96;');
+  }
+
+  function revokePreviewBlobUrls() {
+    if (!state || !Array.isArray(state.previewBlobUrls)) return;
+    state.previewBlobUrls.forEach(function (url) {
+      try { window.URL.revokeObjectURL(url); } catch (_err) {}
+    });
+    state.previewBlobUrls = [];
+  }
+
+  function normalisePreviewHtml(html) {
+    var value = String(html || '');
+
+    if (!value.trim()) {
+      value = '<div style="font-family: Arial, sans-serif; padding: 24px; color: #3e3e3c;">No se ha encontrado HTML renderizable para este asset. Revisa el detalle devuelto por Content Builder.</div>';
+    }
+
+    if (/<!doctype|<html[\s>]/i.test(value)) {
+      return value;
+    }
+
+    return [
+      '<!doctype html>',
+      '<html>',
+      '<head>',
+      '<meta charset="utf-8">',
+      '<meta name="viewport" content="width=device-width, initial-scale=1">',
+      '<base target="_blank">',
+      '<style>',
+      'html,body{margin:0;padding:0;min-height:100%;}',
+      'img{max-width:100%;}',
+      '</style>',
+      '</head>',
+      '<body>',
+      value,
+      '</body>',
+      '</html>'
+    ].join('');
+  }
+
+  function hydratePreviewFrames() {
+    if (!state.preview || state.step !== 3) return;
+
+    var html = normalisePreviewHtml(state.preview.html || '');
+
+    $all('[data-preview-frame]').forEach(function (iframe) {
+      try {
+        iframe.removeAttribute('src');
+        iframe.srcdoc = html;
+      } catch (srcdocErr) {
+        try {
+          var blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+          var url = window.URL.createObjectURL(blob);
+          state.previewBlobUrls.push(url);
+          iframe.src = url;
+        } catch (blobErr) {
+          state.errors = ['No se pudo pintar el preview en iframe: ' + (blobErr.message || srcdocErr.message || 'error desconocido')];
+        }
+      }
+    });
   }
 
   function isEmail(value) {
@@ -283,6 +344,8 @@
       var result = await fetchJson('/api/assets/' + encodeURIComponent(assetId));
       var asset = result.asset;
       state.selectedAsset = asset;
+      revokePreviewBlobUrls();
+      state.preview = null;
 
       state.config.assetId = String(asset.id || '');
       state.config.assetCustomerKey = asset.customerKey || '';
@@ -406,6 +469,7 @@
 
   async function generatePreview() {
     readConfigFromForm();
+    revokePreviewBlobUrls();
     state.loading = true;
     state.errors = [];
     render();
@@ -607,6 +671,7 @@
     ].join('');
 
     bindEvents();
+    hydratePreviewFrames();
   }
 
   function renderHeader() {
@@ -850,20 +915,23 @@
   }
 
   function renderPreviewResult(preview) {
+    var htmlLength = String(preview.html || '').length;
+
     return [
       '<div class="slds-box slds-theme_shade slds-m-bottom_medium">',
       '<p><strong>Subject:</strong> ', escapeHtml(preview.subject || ''), '</p>',
       '<p><strong>Preheader:</strong> ', escapeHtml(preview.preheader || ''), '</p>',
+      '<p class="slds-text-body_small slds-text-color_weak">HTML renderizado: ', escapeHtml(htmlLength), ' caracteres</p>',
       '</div>',
       renderPreviewDiagnostics(preview),
       '<div class="slds-grid slds-gutters slds-wrap">',
       '<div class="slds-col slds-size_1-of-2">',
       '<h3 class="slds-text-heading_small slds-m-bottom_small">Desktop</h3>',
-      '<iframe title="Preview desktop" class="preview-frame desktop" sandbox srcdoc="', attr(preview.html || ''), '"></iframe>',
+      '<iframe title="Preview desktop" class="preview-frame desktop" data-preview-frame="desktop" sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"></iframe>',
       '</div>',
       '<div class="slds-col slds-size_1-of-2">',
       '<h3 class="slds-text-heading_small slds-m-bottom_small">Mobile</h3>',
-      '<iframe title="Preview mobile" class="preview-frame mobile" sandbox srcdoc="', attr(preview.html || ''), '"></iframe>',
+      '<iframe title="Preview mobile" class="preview-frame mobile" data-preview-frame="mobile" sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"></iframe>',
       '</div></div>'
     ].join('');
   }

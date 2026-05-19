@@ -23,6 +23,7 @@ body {
   min-height: 520px;
   border: 1px solid #dddbda;
   background: #fff;
+  color-scheme: light;
 }
 
 .preview-frame.desktop {
