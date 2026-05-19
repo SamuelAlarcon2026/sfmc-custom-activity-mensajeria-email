@@ -121,3 +121,133 @@ code {
 .mapping-table input {
   min-width: 220px;
 }
+
+
+/* v18: responsive mapping UI */
+.mapping-help {
+  justify-content: flex-start;
+  text-align: left;
+}
+
+.mapping-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-width: 100%;
+}
+
+.mapping-card {
+  max-width: 100%;
+  overflow: visible;
+  border-color: #dddbda;
+}
+
+.mapping-card__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px solid #dddbda;
+  padding-bottom: 0.5rem;
+}
+
+.mapping-required {
+  white-space: nowrap;
+}
+
+.mapping-card .slds-select,
+.mapping-card .slds-input {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.mapping-field-select {
+  width: 100%;
+}
+
+.mapping-expression-input {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 0.75rem;
+}
+
+.mapping-expression-preview {
+  margin-top: 0.25rem;
+  color: #706e6b;
+  font-size: 0.75rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+  .mapping-card__header {
+    flex-direction: column;
+  }
+}
+
+
+/* v18: fix Journey Builder modal overflow caused by long schema expressions */
+#app,
+.app-shell,
+#activity-form {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+.slds-card,
+.slds-card__body,
+.slds-card__body_inner {
+  max-width: 100%;
+}
+
+.mapping-list,
+.mapping-card,
+.mapping-card .slds-grid,
+.mapping-card .slds-col,
+.mapping-card .slds-form-element,
+.mapping-card .slds-form-element__control {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.mapping-card {
+  overflow: hidden;
+}
+
+.mapping-card .slds-select,
+.mapping-card .slds-input,
+.schema-field-select,
+.mapping-field-select {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.mapping-expression-input {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mapping-expression-preview {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#recipient-field-select {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+@media (max-width: 1100px) {
+  .mapping-card .slds-large-size_1-of-4,
+  .mapping-card .slds-large-size_3-of-4 {
+    width: 100%;
+    flex-basis: 100%;
+  }
+}
+

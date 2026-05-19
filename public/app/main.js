@@ -411,12 +411,44 @@
     return text.indexOf('email') >= 0 || text.indexOf('e-mail') >= 0 || text.indexOf('mail') >= 0;
   }
 
+  function shortExpression(value) {
+    var text = stripExpressionBraces(value || '');
+    text = text.replace(/^Event\./i, '');
+    text = text.replace(/^Contact\.Attribute\./i, '');
+    if (text.length <= 70) return text;
+    return text.slice(0, 30) + '…' + text.slice(-32);
+  }
+
+  function compactFieldLabel(field) {
+    var label = cleanSchemaLabel((field && field.label) || '');
+    var expression = String((field && field.expression) || '');
+    var fallback = shortExpression(expression);
+
+    // En el <select> no mostramos la expresión completa porque los nombres de Event.DEAudience
+    // son larguísimos y rompen el layout dentro del modal de Journey Builder.
+    if (!label || /^event\.|^contact\./i.test(label) || label.length > 55) {
+      label = fallback;
+    }
+
+    label = label.replace(/^DEAudience-[^.]+\./i, '');
+    label = label.replace(/^Event\.DEAudience-[^.]+\./i, '');
+    label = label.replace(/^Contact\.Attribute\./i, '');
+
+    if (label.length > 48) label = label.slice(0, 45) + '…';
+
+    return label || 'Campo';
+  }
+
+  function fieldSourceBadge(field) {
+    return field && field.source === 'contactData' ? 'Contact' : 'Journey';
+  }
+
   function renderSchemaSelectOptions(currentValue, type) {
     var current = String(currentValue || '');
     var fields = getSchemaFieldsForType(type);
 
     if (!fields.length) {
-      return '<option value="">Pulsa “Cargar campos del Journey” o escribe manualmente abajo</option>';
+      return '<option value="">Carga campos o escribe la expresión manualmente</option>';
     }
 
     var html = ['<option value="">Seleccionar campo...</option>'];
@@ -424,11 +456,11 @@
     fields.forEach(function (field) {
       var value = field.expression;
       var selected = value === current ? ' selected' : '';
+      var display = compactFieldLabel(field) + ' · ' + fieldSourceBadge(field);
+
       html.push(
-        '<option value="', attr(value), '"', selected, '>',
-        escapeHtml(field.label || value),
-        ' · ',
-        escapeHtml(value),
+        '<option value="', attr(value), '" title="', attr(value), '"', selected, '>',
+        escapeHtml(display),
         '</option>'
       );
     });
@@ -467,7 +499,7 @@
         '<select id="recipient-field-select" class="slds-select">',
         '<option value="">No cambiar</option>',
         (emailFields.length ? emailFields : fields).map(function (field) {
-          return '<option value="' + attr(field.expression) + '">' + escapeHtml(field.label || field.expression) + ' · ' + escapeHtml(field.expression) + '</option>';
+          return '<option value="' + attr(field.expression) + '" title="' + attr(field.expression) + '">' + escapeHtml(compactFieldLabel(field) + ' · ' + fieldSourceBadge(field)) + '</option>';
         }).join(''),
         '</select>',
         '</div>',
@@ -1160,7 +1192,7 @@
       '</div>',
       '<div class="slds-m-top_large">',
       '<h3 class="slds-text-heading_small slds-m-bottom_small">Variables dinámicas</h3>',
-      '<p class="slds-text-body_small slds-text-color_weak slds-m-bottom_small">Puedes mapear cada {{variable}} a un valor fijo, Journey Data o Contact Data. El desplegable se alimenta del schema que Journey Builder expone por Postmonger; si algún campo no aparece, puedes escribir la expresión manualmente.</p>',
+      '<p class="slds-text-body_small slds-text-color_weak slds-m-bottom_small">Puedes mapear cada {{variable}} a un valor fijo, Journey Data o Contact Data. El selector muestra nombres cortos para no romper el modal; la expresión completa queda debajo y puede editarse manualmente.</p>',
       renderSchemaTools(),
       renderMappingsTable(),
       '</div>',
@@ -1186,35 +1218,65 @@
     }
 
     return [
-      '<table class="slds-table slds-table_cell-buffer slds-table_bordered mapping-table">',
-      '<thead><tr><th>Variable</th><th>Obligatoria</th><th>Origen</th><th>Valor fijo</th><th>Campo Journey/Contact Data</th><th>Valor test/preview</th></tr></thead>',
-      '<tbody>',
+      '<div class="mapping-help slds-notify slds-notify_alert slds-theme_info slds-m-bottom_medium" role="status">',
+      '<span>Los campos Journey/Contact Data se resuelven solamente en ejecución real del Journey. Para Preview y Test debes informar “Valor test/preview”.</span>',
+      '</div>',
+      '<div class="mapping-list">',
       state.variables.map(function (variable) {
         var mapping = state.config.variableMappings[variable] || {};
         var safe = cssSafe(variable);
+        var mappingType = mapping.type || 'fixed';
+        var selectedPath = mapping.path || '';
         return [
-          '<tr>',
-          '<td><span class="slds-badge">{{', escapeHtml(variable), '}}</span></td>',
-          '<td><input type="checkbox" data-var-required="', safe, '" ', mapping.required !== false ? 'checked' : '', '></td>',
-          '<td>',
+          '<section class="mapping-card slds-box slds-theme_default" data-mapping-card="', safe, '">',
+          '<div class="mapping-card__header">',
+          '<div>',
+          '<div class="slds-text-title_caps">Variable detectada</div>',
+          '<div><span class="slds-badge slds-badge_lightest">{{', escapeHtml(variable), '}}</span></div>',
+          '</div>',
+          '<label class="slds-checkbox mapping-required">',
+          '<input type="checkbox" data-var-required="', safe, '" ', mapping.required !== false ? 'checked' : '', '>',
+          '<span class="slds-checkbox_faux"></span>',
+          '<span class="slds-form-element__label">Obligatoria</span>',
+          '</label>',
+          '</div>',
+
+          '<div class="slds-grid slds-gutters slds-wrap slds-m-top_small">',
+          '<div class="slds-col slds-size_1-of-1 slds-large-size_1-of-4">',
+          '<label class="slds-form-element__label">Origen</label>',
           '<select class="slds-select" data-var-type="', safe, '">',
-          option('fixed', 'Valor fijo', mapping.type),
-          option('journeyData', 'Journey Data', mapping.type),
-          option('contactData', 'Contact Data', mapping.type),
+          option('fixed', 'Valor fijo', mappingType),
+          option('journeyData', 'Journey Data', mappingType),
+          option('contactData', 'Contact Data', mappingType),
           '</select>',
-          '</td>',
-          '<td><input class="slds-input" data-var-value="', safe, '" value="', attr(mapping.value || ''), '" placeholder="Valor fijo"></td>',
-          '<td>',
-          '<select class="slds-select slds-m-bottom_x-small" data-var-field-select="', safe, '">',
-          renderSchemaSelectOptions(mapping.path || '', mapping.type),
-          '</select>',
-          '<input class="slds-input" data-var-path="', safe, '" value="', attr(mapping.path || ''), '" placeholder="{{Event.Campo}} o {{Contact.Attribute.Grupo.Campo}}">',
-          '</td>',
-          '<td><input class="slds-input" data-var-sample="', safe, '" value="', attr(mapping.sampleValue || ''), '" placeholder="Solo preview/test"></td>',
-          '</tr>'
+          '</div>',
+
+          '<div class="slds-col slds-size_1-of-1 slds-large-size_3-of-4">',
+          mappingType === 'fixed'
+            ? [
+                '<label class="slds-form-element__label">Valor fijo</label>',
+                '<input class="slds-input" data-var-value="', safe, '" value="', attr(mapping.value || ''), '" placeholder="Valor fijo para todos los contactos">'
+              ].join('')
+            : [
+                '<label class="slds-form-element__label">Campo ', mappingType === 'contactData' ? 'Contact Data' : 'Journey Data', '</label>',
+                '<select class="slds-select mapping-field-select" data-var-field-select="', safe, '">',
+                renderSchemaSelectOptions(selectedPath, mappingType),
+                '</select>',
+                '<input class="slds-input slds-m-top_x-small mapping-expression-input" data-var-path="', safe, '" value="', attr(selectedPath), '" placeholder="{{Event.Campo}} o {{Contact.Attribute.Grupo.Campo}}">',
+                selectedPath ? '<div class="mapping-expression-preview" title="' + attr(selectedPath) + '">' + escapeHtml(shortExpression(selectedPath)) + '</div>' : ''
+              ].join(''),
+          '</div>',
+
+          '<div class="slds-col slds-size_1-of-1 slds-m-top_small">',
+          '<label class="slds-form-element__label">Valor test/preview</label>',
+          '<input class="slds-input" data-var-sample="', safe, '" value="', attr(mapping.sampleValue || ''), '" placeholder="Ejemplo usado solo para Preview y Envío de test">',
+          '<div class="slds-form-element__help">No se guarda como dato real del contacto. Solo sirve para previsualizar y enviar pruebas.</div>',
+          '</div>',
+          '</div>',
+          '</section>'
         ].join('');
       }).join(''),
-      '</tbody></table>'
+      '</div>'
     ].join('');
   }
 
@@ -1551,7 +1613,7 @@
 
     if (!hasReceivedInitActivity) {
       state.notices = [{
-        message: 'Journey Builder todavía no ha enviado initActivity. Esta versión usa Postmonger oficial. Revisa que el Installed Package apunte a /config.json?v=schema-dropdown-v16 y que SFMC esté cargando /index.html?v=schema-dropdown-v16.',
+        message: 'Journey Builder todavía no ha enviado initActivity. Esta versión usa Postmonger oficial. Revisa que el Installed Package apunte a /config.json?v=mapping-ui-v17 y que SFMC esté cargando /index.html?v=mapping-ui-v17.',
         variant: 'warning'
       }];
       render();

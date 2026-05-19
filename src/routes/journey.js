@@ -77,7 +77,7 @@ function buildConfigJson() {
     },
     userInterfaces: {
       configModal: {
-        url: `${base}/index.html?v=schema-dropdown-v16`,
+        url: `${base}/index.html?v=mapping-ui-v18`,
         height: 720,
         width: 980,
         fullscreen: false
