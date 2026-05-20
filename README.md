@@ -17,7 +17,7 @@ https://sfmc-custom-activity-mensajeria-email.onrender.com
 - **Content Builder Asset API** solo se consume desde backend con OAuth `client_credentials`.
 - Los secretos de SFMC y relay viven solo en variables de entorno.
 - La ejecución por contacto ocurre en `POST /execute`.
-- El envío final no usa el motor de envío de SFMC. Se llama a `RELAY_API_URL` con `Authorization: Bearer RELAY_API_KEY`.
+- El envío final no usa el motor de envío de SFMC. Se llama a Microsoft Graph `sendMail` usando un token OAuth obtenido con variables `RELAY_*`.
 - No se usa almacenamiento persistente. El snapshot de HTML/text del asset queda guardado dentro de `inArguments.config.templateSnapshot`.
 
 ## 2. Árbol de archivos
@@ -70,6 +70,7 @@ https://sfmc-custom-activity-mensajeria-email.onrender.com
 | `POST` | `/validate` | Validación previa/publicación. |
 | `POST` | `/publish` | Validación de publicación. |
 | `POST` | `/stop` | Stop de una versión de Journey. |
+| `GET` | `/api/relay/diagnostics` | Diagnóstico del relay Microsoft Graph sin exponer secretos. |
 | `GET` | `/health` | Healthcheck para Render. |
 
 ## 4. Variables de entorno
@@ -80,14 +81,72 @@ SFMC_CLIENT_ID=...
 SFMC_CLIENT_SECRET=...
 SFMC_AUTH_BASE_URL=https://YOUR_SUBDOMAIN.auth.marketingcloudapis.com
 SFMC_REST_BASE_URL=https://YOUR_SUBDOMAIN.rest.marketingcloudapis.com
-RELAY_API_URL=https://relay.example.com/send
-RELAY_API_KEY=...
+# Relay Microsoft Graph
+RELAY_PROVIDER=microsoft-graph
+RELAY_AUTH_URL=https://login.microsoftonline.com/<TENANT_ID>/oauth2/v2.0/token
+RELAY_CLIENT_ID=<azure_app_client_id>
+RELAY_CLIENT_SECRET=<azure_app_client_secret>
+RELAY_SCOPE=https://graph.microsoft.com/.default
+RELAY_API_URL=https://graph.microsoft.com/v1.0/users/<mailbox>/sendMail
+RELAY_GRAPH_SAVE_TO_SENT_ITEMS=true
 RELAY_TIMEOUT_MS=15000
+
 APP_BASE_URL=https://sfmc-custom-activity-mensajeria-email.onrender.com
 NODE_ENV=production
 ```
 
 No configures secretos en frontend ni en `config.json`.
+
+
+## Relay Microsoft Graph
+
+La integración de relay está adaptada para Microsoft Graph `sendMail` con OAuth client credentials.
+
+Flujo implementado:
+
+1. `POST RELAY_AUTH_URL` con `Content-Type: application/x-www-form-urlencoded`.
+2. Se envía `client_id`, `client_secret`, `grant_type=client_credentials` y `scope`.
+3. El token se cachea en memoria hasta poco antes de expirar.
+4. `POST RELAY_API_URL` con `Authorization: Bearer <access_token>`.
+5. El body enviado a Graph tiene esta forma:
+
+```json
+{
+  "saveToSentItems": true,
+  "message": {
+    "toRecipients": [
+      {
+        "emailAddress": {
+          "address": "destinatario@dominio.com"
+        }
+      }
+    ],
+    "body": {
+      "contentType": "HTML",
+      "content": "<html>...</html>"
+    },
+    "subject": "Subject final"
+  }
+}
+```
+
+Si `replyTo` está informado, se añade como `message.replyTo`.
+
+Limitación importante: Microsoft Graph `/users/{mailbox}/sendMail` no permite cambiar libremente el `From` por payload. El remitente real será el buzón indicado en `RELAY_API_URL`. Los campos `From Name` y `From Email` de la UI se mantienen como referencia de configuración, pero el envío real sale del mailbox configurado en Graph.
+
+Endpoint de diagnóstico:
+
+```txt
+GET /api/relay/diagnostics
+```
+
+Devuelve si la configuración existe y si se puede obtener token OAuth, sin exponer el token.
+
+Permisos habituales necesarios en Azure para envío app-only:
+
+- `Mail.Send` de tipo Application permission en Microsoft Graph.
+- Admin consent concedido.
+- El buzón de `RELAY_API_URL` debe existir y estar autorizado por la política de la organización.
 
 ## 5. Despliegue en Render
 

@@ -1,7 +1,7 @@
 const express = require('express');
 const { AppError } = require('../middleware/errorHandler');
 const { renderEmailTemplate, hasBlockingUnresolved } = require('../services/templateRenderService');
-const { buildRelayPayload, postToRelay, isEmail } = require('../services/relayService');
+const { buildRelayPayload, postToRelay, isEmail, getRelayDiagnostics } = require('../services/relayService');
 const { getAssetDetail } = require('../services/contentBuilderService');
 const {
   putPreview,
@@ -21,6 +21,19 @@ function buildPreviewUrls(req, previewId) {
     raw: `/api/preview-frame/${encodeURIComponent(previewId)}/raw`
   };
 }
+
+
+router.get('/relay/diagnostics', async (req, res, next) => {
+  try {
+    const diagnostics = await getRelayDiagnostics();
+    res.json({
+      success: true,
+      ...diagnostics
+    });
+  } catch (err) {
+    next(err);
+  }
+});
 
 router.post('/preview', async (req, res, next) => {
   try {

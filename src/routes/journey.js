@@ -3,7 +3,7 @@ const { AppError } = require('../middleware/errorHandler');
 const { getAssetDetail } = require('../services/contentBuilderService');
 const { renderEmailTemplate, hasBlockingUnresolved } = require('../services/templateRenderService');
 const { buildResolvedDataFromExecute, detectVariables } = require('../services/variableParserService');
-const { buildRelayPayload, postToRelay, assertRelayConfigured, isEmail } = require('../services/relayService');
+const { buildRelayPayload, postToRelay, assertRelayConfigured, isEmail, isMicrosoftGraphRelay } = require('../services/relayService');
 
 const router = express.Router();
 
@@ -77,7 +77,7 @@ function buildConfigJson() {
     },
     userInterfaces: {
       configModal: {
-        url: `${base}/index.html?v=mapping-ui-v18`,
+        url: `${base}/index.html?v=graph-relay-v19`,
         height: 720,
         width: 980,
         fullscreen: false
@@ -144,14 +144,24 @@ function validateConfig(configInput = {}) {
 
   if (!config.assetId) errors.push('Selecciona un asset de Content Builder.');
   if (!config.subject.trim()) errors.push('El subject no puede estar vacío.');
-  if (!isEmail(config.fromEmail)) errors.push('From Email debe tener formato válido.');
+
+  // En modo Microsoft Graph el remitente real lo define el endpoint /users/{mailbox}/sendMail.
+  // El From Email de la UI queda como referencia de negocio y no se usa para sobrescribir el From.
+  if (!isMicrosoftGraphRelay() && !isEmail(config.fromEmail)) {
+    errors.push('From Email debe tener formato válido.');
+  }
+
+  if (isMicrosoftGraphRelay() && config.fromEmail && !isEmail(config.fromEmail)) {
+    errors.push('From Email debe tener formato válido si se informa.');
+  }
+
   if (config.replyTo && !isEmail(config.replyTo)) errors.push('Reply-To debe tener formato válido.');
   if (!config.recipientExpression.trim()) errors.push('Configura el email destinatario o un mapping de email del contacto.');
 
   try {
     assertRelayConfigured();
   } catch (_err) {
-    errors.push('El relay privado no está configurado. Revisa RELAY_API_URL y RELAY_API_KEY.');
+    errors.push('El relay privado no está configurado. Revisa las variables RELAY_* en Render.');
   }
 
   const snapshot = config.templateSnapshot || {};
