@@ -341,3 +341,22 @@ Para probar Journey Builder necesitas HTTPS público. Render cumple este requisi
 
 El modal de Journey Builder usa `/index.html?v=postmonger-v10` y Postmonger local compatible en `/vendor/postmonger-local.js?v=postmonger-v10`.
 
+
+
+## Hotfix v21: resolución de variables dinámicas en ejecución
+
+Journey Builder evalúa las expresiones `{{...}}` presentes en `inArguments` antes de llamar a `/execute`.
+Para evitar que placeholders propios del email como `{{Nombre}}` se conviertan en vacío antes de llegar al backend,
+la Custom Activity guarda subject, preheader, HTML y texto en Base64 dentro de `config.encodedContent`.
+
+Los campos reales de Journey/Contact Data sí se guardan como argumentos planos, por ejemplo:
+
+```json
+{
+  "emailAddress": "{{InteractionDefaults.Email}}",
+  "var_Nombre": "{{Event.DEAudience-...Nombre}}"
+}
+```
+
+En ejecución real, Journey Builder resuelve `var_Nombre` y el backend sustituye `{{Nombre}}` sobre el HTML decodificado.
+En Preview/Test no hay contacto real, por lo que se usan los valores de prueba configurados en el modal.

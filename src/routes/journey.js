@@ -77,7 +77,7 @@ function buildConfigJson() {
     },
     userInterfaces: {
       configModal: {
-        url: `${base}/index.html?v=publish-validation-v20`,
+        url: `${base}/index.html?v=resolve-vars-v21`,
         height: 720,
         width: 980,
         fullscreen: false
@@ -216,7 +216,36 @@ function respondConfigurationLifecycle(req, res, next, phase, successMessage, er
   }
 }
 
+
+function decodeBase64Utf8(value) {
+  if (!value) return '';
+  try {
+    return Buffer.from(String(value), 'base64').toString('utf8');
+  } catch (_err) {
+    return '';
+  }
+}
+
+function decodeStoredConfigContent(config = {}) {
+  const decoded = { ...config };
+  const encoded = decoded.encodedContent || decoded.templateSnapshotEncoded || null;
+
+  if (encoded && encoded.encoding === 'base64') {
+    decoded.subject = decodeBase64Utf8(encoded.subject || encoded.subjectB64 || '');
+    decoded.preheader = decodeBase64Utf8(encoded.preheader || encoded.preheaderB64 || '');
+    decoded.templateSnapshot = {
+      ...(decoded.templateSnapshot || {}),
+      html: decodeBase64Utf8(encoded.html || encoded.htmlB64 || ''),
+      text: decodeBase64Utf8(encoded.text || encoded.textB64 || '')
+    };
+  }
+
+  return decoded;
+}
+
+
 function normalizeConfig(config = {}) {
+  config = decodeStoredConfigContent(config || {});
   return {
     assetId: config.assetId ? String(config.assetId) : '',
     assetCustomerKey: config.assetCustomerKey ? String(config.assetCustomerKey) : '',

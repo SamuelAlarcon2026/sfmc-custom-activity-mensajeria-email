@@ -34,6 +34,10 @@ function normalizeMappingValue(value) {
   return JSON.stringify(value);
 }
 
+function isUnresolvedJourneyExpression(value) {
+  return /^{{[\s\S]*}}$/.test(String(value || '').trim());
+}
+
 function findProtectedRanges(html) {
   const ranges = [];
   const pattern = /<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi;
@@ -67,6 +71,16 @@ function buildValuesFromMappings({ variables = [], variableMappings = {}, sample
       value = sampleData[variable];
     } else if (useSamples && Object.prototype.hasOwnProperty.call(mapping, 'sampleValue')) {
       value = mapping.sampleValue;
+    } else if (
+      (mapping.type === 'journeyData' || mapping.type === 'contactData') &&
+      Object.prototype.hasOwnProperty.call(mapping, 'path') &&
+      mapping.path !== '' &&
+      !isUnresolvedJourneyExpression(mapping.path)
+    ) {
+      // Fallback de compatibilidad: en algunos tenants Journey Builder resuelve también
+      // expresiones anidadas dentro de config.variableMappings.*.path. Si ya llegó como
+      // valor real, podemos usarlo.
+      value = mapping.path;
     } else if (Object.prototype.hasOwnProperty.call(mapping, 'fallbackValue')) {
       value = mapping.fallbackValue;
     }

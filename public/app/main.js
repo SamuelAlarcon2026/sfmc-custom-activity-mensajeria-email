@@ -90,6 +90,70 @@
   function attr(value) {
     return escapeHtml(value).replace(/`/g, '&#96;');
   }
+  function utf8ToBase64(value) {
+    var text = String(value == null ? '' : value);
+    try {
+      return window.btoa(unescape(encodeURIComponent(text)));
+    } catch (_err) {
+      return window.btoa(text);
+    }
+  }
+
+  function base64ToUtf8(value) {
+    var text = String(value == null ? '' : value);
+    if (!text) return '';
+    try {
+      return decodeURIComponent(escape(window.atob(text)));
+    } catch (_err) {
+      try {
+        return window.atob(text);
+      } catch (__err) {
+        return '';
+      }
+    }
+  }
+
+  function decodeStoredConfigContent(config) {
+    var decoded = clone(config || {});
+    var encoded = decoded.encodedContent || decoded.templateSnapshotEncoded || null;
+
+    if (encoded && encoded.encoding === 'base64') {
+      decoded.subject = base64ToUtf8(encoded.subject || encoded.subjectB64 || decoded.subject || '');
+      decoded.preheader = base64ToUtf8(encoded.preheader || encoded.preheaderB64 || decoded.preheader || '');
+      decoded.templateSnapshot = Object.assign(clone(DEFAULT_CONFIG.templateSnapshot), decoded.templateSnapshot || {}, {
+        html: base64ToUtf8(encoded.html || encoded.htmlB64 || ''),
+        text: base64ToUtf8(encoded.text || encoded.textB64 || '')
+      });
+    } else {
+      decoded.templateSnapshot = Object.assign(clone(DEFAULT_CONFIG.templateSnapshot), decoded.templateSnapshot || {});
+    }
+
+    return decoded;
+  }
+
+  function buildSafeConfigForJourneyBuilder() {
+    var safe = clone(state.config);
+
+    safe.encodedContent = {
+      version: 1,
+      encoding: 'base64',
+      subject: utf8ToBase64(state.config.subject || ''),
+      preheader: utf8ToBase64(state.config.preheader || ''),
+      html: utf8ToBase64((state.config.templateSnapshot && state.config.templateSnapshot.html) || ''),
+      text: utf8ToBase64((state.config.templateSnapshot && state.config.templateSnapshot.text) || '')
+    };
+
+    // Journey Builder resuelve cualquier {{...}} que encuentre dentro de inArguments antes
+    // de llamar a /execute. Si guardamos el HTML/subject en claro, placeholders propios como
+    // {{Nombre}} se convierten en cadena vacía antes de que nuestro backend pueda renderizarlos.
+    // Por eso persistimos el contenido renderizable en Base64 y dejamos solo metadatos en claro.
+    safe.subject = '';
+    safe.preheader = '';
+    safe.templateSnapshot = { html: '', text: '' };
+
+    return safe;
+  }
+
 
   function revokePreviewBlobUrls() {
     if (!state || !Array.isArray(state.previewBlobUrls)) return;
@@ -608,6 +672,7 @@
 
     var existing = extractInArgumentConfig(state.activity);
     if (existing) {
+      existing = decodeStoredConfigContent(existing);
       state.config = Object.assign(clone(DEFAULT_CONFIG), existing, {
         templateSnapshot: Object.assign(clone(DEFAULT_CONFIG.templateSnapshot), existing.templateSnapshot || {})
       });
@@ -932,7 +997,7 @@
     var emailExpression = ensureExpression(state.config.recipientExpression || '{{InteractionDefaults.Email}}');
 
     return Object.assign({
-      config: state.config,
+      config: buildSafeConfigForJourneyBuilder(),
       contactKey: '{{Contact.Key}}',
       emailAddress: emailExpression,
       resolvedData: resolvedData
