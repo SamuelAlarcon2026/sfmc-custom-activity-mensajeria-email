@@ -77,7 +77,7 @@ function buildConfigJson() {
     },
     userInterfaces: {
       configModal: {
-        url: `${base}/index.html?v=graph-relay-v19`,
+        url: `${base}/index.html?v=publish-validation-v20`,
         height: 720,
         width: 980,
         fullscreen: false
@@ -109,14 +109,111 @@ function mergeInArguments(inArguments) {
   return {};
 }
 
-function extractConfigFromPayload(payload = {}) {
-  const args = payload.arguments?.execute?.inArguments
-    || payload.inArguments
-    || payload.config?.inArguments
-    || [];
+function findInArguments(payload = {}) {
+  const candidates = [
+    payload.arguments?.execute?.inArguments,
+    payload.activity?.arguments?.execute?.inArguments,
+    payload.originalActivity?.arguments?.execute?.inArguments,
+    payload.originalDefinition?.arguments?.execute?.inArguments,
+    payload.definition?.arguments?.execute?.inArguments,
+    payload.config?.inArguments,
+    payload.activity?.inArguments,
+    payload.inArguments
+  ];
 
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate) && candidate.length) return candidate;
+    if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) return [candidate];
+  }
+
+  // Algunos tenants/envíos de Journey Builder envuelven los datos de la actividad
+  // más profundo dentro del payload. Buscamos de forma limitada una estructura
+  // arguments.execute.inArguments para no depender de un único contrato.
+  const visited = new Set();
+
+  function walk(node, depth = 0) {
+    if (!node || typeof node !== 'object' || depth > 6 || visited.has(node)) return null;
+    visited.add(node);
+
+    const direct = node.arguments?.execute?.inArguments;
+    if (Array.isArray(direct) && direct.length) return direct;
+
+    for (const key of Object.keys(node)) {
+      const value = node[key];
+      if (value && typeof value === 'object') {
+        const found = walk(value, depth + 1);
+        if (found) return found;
+      }
+    }
+
+    return null;
+  }
+
+  return walk(payload) || [];
+}
+
+function extractConfigFromPayload(payload = {}) {
+  if (Array.isArray(payload)) {
+    const mergedArrayPayload = mergeInArguments(payload);
+    return mergedArrayPayload.config || mergedArrayPayload || {};
+  }
+
+  const args = findInArguments(payload);
   const merged = mergeInArguments(args);
-  return merged.config || payload.config || merged || {};
+
+  return merged.config
+    || payload.config
+    || payload.activity?.config
+    || payload.data?.config
+    || merged
+    || {};
+}
+
+function isStrictActivityValidationEnabled() {
+  return ['1', 'true', 'yes', 'y', 'si', 'sí'].includes(
+    String(process.env.ACTIVITY_VALIDATION_STRICT || '').trim().toLowerCase()
+  );
+}
+
+function respondConfigurationLifecycle(req, res, next, phase, successMessage, errorCode) {
+  try {
+    const config = extractConfigFromPayload(req.body || {});
+    const errors = validateConfig(config);
+
+    if (errors.length) {
+      console.warn('[activity-lifecycle-validation-warning]', {
+        correlationId: req.correlationId,
+        phase,
+        errors
+      });
+    }
+
+    // Journey Builder suele mostrar "endpoint is invalid" cuando estos endpoints
+    // devuelven 4xx/5xx aunque el problema sea una validación de negocio.
+    // Por defecto respondemos 200 para confirmar que el endpoint es válido.
+    // Si se quiere bloquear publicación desde backend, activar:
+    // ACTIVITY_VALIDATION_STRICT=true
+    if (errors.length && isStrictActivityValidationEnabled()) {
+      throw new AppError(
+        `La actividad no supera la validación en fase ${phase}.`,
+        400,
+        errors,
+        errorCode
+      );
+    }
+
+    res.status(200).json({
+      success: true,
+      valid: errors.length === 0,
+      phase,
+      message: errors.length
+        ? `${successMessage} Endpoint válido. Existen avisos de configuración; revisa la configuración en el modal.`
+        : successMessage,
+      warnings: errors
+    });
+  } catch (err) {
+    next(err);
+  }
 }
 
 function normalizeConfig(config = {}) {
@@ -201,62 +298,58 @@ router.get('/config.json', (req, res) => {
 });
 
 router.post('/save', (req, res, next) => {
-  try {
-    const config = extractConfigFromPayload(req.body || {});
-    const errors = validateConfig(config);
-
-    if (errors.length) {
-      throw new AppError('La configuración no es válida.', 400, errors, 'ACTIVITY_SAVE_INVALID');
-    }
-
-    res.json({ success: true, message: 'Configuración guardada.' });
-  } catch (err) {
-    next(err);
-  }
+  respondConfigurationLifecycle(
+    req,
+    res,
+    next,
+    'save',
+    'Configuración recibida por Journey Builder.',
+    'ACTIVITY_SAVE_INVALID'
+  );
 });
 
 router.post('/validate', (req, res, next) => {
-  try {
-    const config = extractConfigFromPayload(req.body || {});
-    const errors = validateConfig(config);
-
-    if (errors.length) {
-      throw new AppError('La actividad no supera la validación.', 400, errors, 'ACTIVITY_VALIDATE_INVALID');
-    }
-
-    res.json({ success: true, message: 'Validación correcta.' });
-  } catch (err) {
-    next(err);
-  }
+  respondConfigurationLifecycle(
+    req,
+    res,
+    next,
+    'validate',
+    'Endpoint de validación correcto.',
+    'ACTIVITY_VALIDATE_INVALID'
+  );
 });
 
 router.post('/publish', (req, res, next) => {
-  try {
-    const config = extractConfigFromPayload(req.body || {});
-    const errors = validateConfig(config);
-
-    if (errors.length) {
-      throw new AppError('La actividad no se puede publicar.', 400, errors, 'ACTIVITY_PUBLISH_INVALID');
-    }
-
-    res.json({ success: true, message: 'Publicación validada.' });
-  } catch (err) {
-    next(err);
-  }
+  respondConfigurationLifecycle(
+    req,
+    res,
+    next,
+    'publish',
+    'Endpoint de publicación correcto.',
+    'ACTIVITY_PUBLISH_INVALID'
+  );
 });
 
 router.post('/stop', (req, res) => {
   res.json({ success: true, message: 'Stop recibido.' });
 });
 
+router.get(['/save', '/validate', '/publish', '/stop', '/execute'], (req, res) => {
+  res.status(200).json({
+    success: true,
+    message: 'Endpoint disponible.',
+    path: req.path
+  });
+});
+
 router.post('/execute', async (req, res, next) => {
   try {
     const body = req.body || {};
-    const inArgs = mergeInArguments(body.inArguments || body.arguments?.execute?.inArguments || []);
+    const inArgs = mergeInArguments(findInArguments(body));
     const config = normalizeConfig(inArgs.config || {});
 
     const contactKey = inArgs.contactKey || body.keyValue || body.contactKey || '';
-    const emailAddress = inArgs.emailAddress || inArgs.to || config.emailAddress || '';
+    const emailAddress = inArgs.emailAddress || inArgs.to || config.emailAddress || config.recipientExpression || '';
     const resolvedData = buildResolvedDataFromExecute(inArgs);
 
     let subject = config.subject;
